@@ -308,7 +308,9 @@ func (t *Tooling) GetCallGraph(ctx context.Context, req *toolingv0.GetCallGraphR
 // ── Dev Validation (delegates to Runtime) ──────────────
 
 func (t *Tooling) Build(ctx context.Context, _ *toolingv0.BuildRequest) (*toolingv0.BuildResponse, error) {
-	resp, err := t.Runtime.Build(ctx, nil)
+	// Pass non-nil requests: the Runtime methods dereference req.Target, so nil
+	// panicked the agent on every Mind tooling Build/Test/Lint call.
+	resp, err := t.Runtime.Build(ctx, &runtimev0.BuildRequest{})
 	if err != nil {
 		return nil, fmt.Errorf("tooling build: %w", err)
 	}
@@ -317,7 +319,7 @@ func (t *Tooling) Build(ctx context.Context, _ *toolingv0.BuildRequest) (*toolin
 }
 
 func (t *Tooling) Test(ctx context.Context, _ *toolingv0.TestRequest) (*toolingv0.TestResponse, error) {
-	resp, err := t.Runtime.Test(ctx, nil)
+	resp, err := t.Runtime.Test(ctx, &runtimev0.TestRequest{})
 	if err != nil {
 		return nil, fmt.Errorf("tooling test: %w", err)
 	}
@@ -331,7 +333,7 @@ func (t *Tooling) Test(ctx context.Context, _ *toolingv0.TestRequest) (*toolingv
 }
 
 func (t *Tooling) Lint(ctx context.Context, _ *toolingv0.LintRequest) (*toolingv0.LintResponse, error) {
-	resp, err := t.Runtime.Lint(ctx, nil)
+	resp, err := t.Runtime.Lint(ctx, &runtimev0.LintRequest{})
 	if err != nil {
 		return nil, fmt.Errorf("tooling lint: %w", err)
 	}

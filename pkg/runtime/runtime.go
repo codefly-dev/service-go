@@ -189,11 +189,13 @@ func (s *Runtime) Start(ctx context.Context, req *runtimev0.StartRequest) (*runt
 
 	err := s.RunnerEnvironment.BuildBinary(ctx)
 	if err != nil {
-		if !s.Settings.HotReload {
-			return s.Runtime.StartError(err)
-		}
-		s.Wool.Info("compile error, waiting for hot-reload")
-		return s.Runtime.StartResponse()
+		// NOTE: unlike the go-grpc agent, this generic runtime never calls
+		// SetupWatcher, so nothing recompiles on a later source change. Returning
+		// success here (as the hot-reload branch used to) left the service dead
+		// forever while codefly reported it running. Until a file watcher is
+		// wired (mirror go-grpc runtime.go SetupWatcher), surface the compile
+		// error on every path instead of faking a successful start.
+		return s.Runtime.StartError(err)
 	}
 
 	runningContext := s.Wool.Inject(context.Background())
