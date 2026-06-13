@@ -185,6 +185,7 @@ func (s *Runtime) Start(ctx context.Context, req *runtimev0.StartRequest) (*runt
 		if err := s.runner.Stop(ctx); err != nil {
 			return s.Runtime.StartError(err)
 		}
+		s.runner = nil // don't keep a stopped runner if Start bails before re-assigning
 	}
 
 	err := s.RunnerEnvironment.BuildBinary(ctx)
@@ -336,6 +337,7 @@ func (s *Runtime) Stop(ctx context.Context, req *runtimev0.StopRequest) (*runtim
 		if err := s.runner.Stop(ctx); err != nil {
 			return s.Runtime.StopError(err)
 		}
+		s.runner = nil // released — avoid re-Stopping a dead runner on the next call
 	}
 	// Stop the file watcher to prevent CPU spin on orphaned processes
 	if s.Watcher != nil {

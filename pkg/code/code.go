@@ -180,7 +180,12 @@ func (c *Code) handleFix(ctx context.Context, req *codev0.CodeRequest) (*codev0.
 	} else {
 		actions = append(actions, "gofmt")
 	}
-	result, _ := os.ReadFile(tmpPath)
+	result, err := os.ReadFile(tmpPath)
+	if err != nil {
+		// Don't report success with empty content — the caller would
+		// otherwise overwrite the user's file with nothing.
+		return fixResp(false, "", fmt.Sprintf("cannot read formatted result: %v", err), actions), nil
+	}
 	return fixResp(true, string(result), "", actions), nil
 }
 
@@ -209,8 +214,15 @@ func (c *Code) handleApplyEdit(ctx context.Context, req *codev0.CodeRequest) (*c
 		if tmpErr == nil {
 			tmpPath := tmpFile.Name()
 			defer os.Remove(tmpPath)
-			tmpFile.Write([]byte(edited))
-			tmpFile.Close()
+			if _, werr := tmpFile.Write([]byte(edited)); werr != nil {
+				_ = tmpFile.Close()
+				// A partial/empty temp file would make the formatters below
+				// silently operate on wrong content — fail loudly instead.
+				return applyEditResp(false, "", "", fmt.Sprintf("cannot write temp file: %v", werr), nil), nil
+			}
+			if cerr := tmpFile.Close(); cerr != nil {
+				return applyEditResp(false, "", "", fmt.Sprintf("cannot close temp file: %v", cerr), nil), nil
+			}
 
 			tmpDir := filepath.Dir(tmpPath)
 			if out, fixErr := c.runTool(ctx,tmpDir, "goimports", "-w", tmpPath); fixErr != nil {
