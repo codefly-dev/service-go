@@ -12,6 +12,7 @@ import (
 
 	"github.com/codefly-dev/core/agents/services"
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	"github.com/codefly-dev/core/llmout"
 	"github.com/codefly-dev/core/resources"
 	runners "github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/wool"
@@ -238,10 +239,15 @@ func (s *Runtime) Build(ctx context.Context, req *runtimev0.BuildRequest) (*runt
 
 	opts := golanghelpers.BuildOptions{Target: req.Target}
 	output, runErr := golanghelpers.RunGoBuild(ctx, s.RunnerEnvironment, s.Service.SourceLocation, envs, opts)
+	// Compress before the output reaches the model. On failure especially, the
+	// compiler errors are the biggest and most useful payload — and because a
+	// gRPC error drops the response body, the compressed errors must travel in
+	// the error message.
+	compressed := llmout.Compress("go", []string{"build"}, output)
 	if runErr != nil {
-		return s.Runtime.BuildErrorf(runErr, "build failed")
+		return s.Runtime.BuildErrorf(runErr, "build failed:\n%s", compressed)
 	}
-	return s.Runtime.BuildResponse(output)
+	return s.Runtime.BuildResponse(compressed)
 }
 
 func (s *Runtime) Test(ctx context.Context, req *runtimev0.TestRequest) (*runtimev0.TestResponse, error) {
@@ -315,10 +321,11 @@ func (s *Runtime) Lint(ctx context.Context, req *runtimev0.LintRequest) (*runtim
 
 	opts := golanghelpers.LintOptions{Target: req.Target}
 	output, runErr := golanghelpers.RunGoLint(ctx, s.RunnerEnvironment, s.Service.SourceLocation, envs, opts)
+	compressed := llmout.Compress("go", []string{"vet"}, output)
 	if runErr != nil {
-		return s.Runtime.LintErrorf(runErr, "lint failed")
+		return s.Runtime.LintErrorf(runErr, "lint failed:\n%s", compressed)
 	}
-	return s.Runtime.LintResponse(output)
+	return s.Runtime.LintResponse(compressed)
 }
 
 func (s *Runtime) Information(ctx context.Context, req *runtimev0.InformationRequest) (*runtimev0.InformationResponse, error) {
