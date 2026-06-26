@@ -2,29 +2,19 @@
 // Specializations can embed *Code and register additional Execute
 // overrides for framework-specific handlers.
 //
-// Note on LSP: the original agent used `github.com/codefly-dev/core/companions/lsp`
-// for gopls-backed ListSymbols/GoToDefinition/FindReferences/etc. That
-// package does not currently exist in core; LSP handlers were removed
-// when this package was split off. The handlers should be restored once
-// a core LSP client is available. Current capabilities:
-//   - File / git / AST symbol ops from embedded *corecode.GoCodeServer
+// Current capabilities:
+//   - File / git operations from embedded *corecode.GoCodeServer
 //   - Fix (goimports + gofmt)
 //   - ApplyEdit with auto-fix
 //   - AddDependency / RemoveDependency (go get / go mod edit -droprequire)
-//
-// Call graph analysis (VTA) is served via the Tooling gRPC service, NOT
-// through Code.Execute Override.
 package code
 
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	corecode "github.com/codefly-dev/core/code"
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
@@ -110,9 +100,8 @@ func (c *Code) SourceDir() string {
 }
 
 // registerOverrides wires agent-specific handlers on top of GoCodeServer.
-// GoCodeServer already provides: list_symbols (AST), get_project_info,
-// list_dependencies. We add goimports/gofmt fix, auto-fix apply_edit, and
-// dependency mutations.
+// GoCodeServer already provides get_project_info and list_dependencies.
+// We add goimports/gofmt fix, auto-fix apply_edit, and dependency mutations.
 func (c *Code) registerOverrides() {
 	c.Override("fix", c.handleFix)
 	c.Override("apply_edit", c.handleApplyEdit)
@@ -126,18 +115,6 @@ func (c *Code) registerOverrides() {
 func (c *Code) GetProjectInfo(ctx context.Context, req *codev0.GetProjectInfoRequest) (*codev0.GetProjectInfoResponse, error) {
 	c.EnsureInit()
 	return c.GoCodeServer.GetProjectInfo(ctx, req)
-}
-
-func (c *Code) ListSymbols(ctx context.Context, req *codev0.ListSymbolsRequest) (*codev0.ListSymbolsResponse, error) {
-	c.EnsureInit()
-	resp, err := c.GoCodeServer.ListSymbols(ctx, req)
-	if err != nil {
-		return resp, err
-	}
-	if resp != nil && req.File != "" {
-		c.enrichSymbolHashes(resp.Symbols, req.File)
-	}
-	return resp, nil
 }
 
 func (c *Code) Execute(ctx context.Context, req *codev0.CodeRequest) (*codev0.CodeResponse, error) {
@@ -170,12 +147,12 @@ func (c *Code) handleFix(ctx context.Context, req *codev0.CodeRequest) (*codev0.
 
 	tmpDir := filepath.Dir(tmpPath)
 	var actions []string
-	if out, err := c.runTool(ctx,tmpDir, "goimports", "-w", tmpPath); err != nil {
+	if out, err := c.runTool(ctx, tmpDir, "goimports", "-w", tmpPath); err != nil {
 		wool.Get(ctx).In("Code.Fix").Warn("goimports failed", wool.Field("error", string(out)))
 	} else {
 		actions = append(actions, "goimports")
 	}
-	if out, err := c.runTool(ctx,tmpDir, "gofmt", "-w", tmpPath); err != nil {
+	if out, err := c.runTool(ctx, tmpDir, "gofmt", "-w", tmpPath); err != nil {
 		wool.Get(ctx).In("Code.Fix").Warn("gofmt failed", wool.Field("error", string(out)))
 	} else {
 		actions = append(actions, "gofmt")
@@ -225,12 +202,12 @@ func (c *Code) handleApplyEdit(ctx context.Context, req *codev0.CodeRequest) (*c
 			}
 
 			tmpDir := filepath.Dir(tmpPath)
-			if out, fixErr := c.runTool(ctx,tmpDir, "goimports", "-w", tmpPath); fixErr != nil {
+			if out, fixErr := c.runTool(ctx, tmpDir, "goimports", "-w", tmpPath); fixErr != nil {
 				wool.Get(ctx).In("Code.ApplyEdit").Warn("goimports failed", wool.Field("error", string(out)))
 			} else {
 				fixActions = append(fixActions, "goimports")
 			}
-			if out, fixErr := c.runTool(ctx,tmpDir, "gofmt", "-w", tmpPath); fixErr != nil {
+			if out, fixErr := c.runTool(ctx, tmpDir, "gofmt", "-w", tmpPath); fixErr != nil {
 				wool.Get(ctx).In("Code.ApplyEdit").Warn("gofmt failed", wool.Field("error", string(out)))
 			} else {
 				fixActions = append(fixActions, "gofmt")
@@ -251,7 +228,7 @@ func (c *Code) handleAddDependency(ctx context.Context, req *codev0.CodeRequest)
 	if r.Version != "" {
 		pkg += "@" + r.Version
 	}
-	out, err := c.runTool(ctx,c.SourceDir(), "go", "get", pkg)
+	out, err := c.runTool(ctx, c.SourceDir(), "go", "get", pkg)
 	if err != nil {
 		return &codev0.CodeResponse{Result: &codev0.CodeResponse_AddDependency{AddDependency: &codev0.AddDependencyResponse{
 			Success: false, Error: fmt.Sprintf("go get: %s", string(out)),
@@ -262,12 +239,12 @@ func (c *Code) handleAddDependency(ctx context.Context, req *codev0.CodeRequest)
 
 func (c *Code) handleRemoveDependency(ctx context.Context, req *codev0.CodeRequest) (*codev0.CodeResponse, error) {
 	r := req.GetRemoveDependency()
-	if out, err := c.runTool(ctx,c.SourceDir(), "go", "mod", "edit", "-droprequire", r.PackageName); err != nil {
+	if out, err := c.runTool(ctx, c.SourceDir(), "go", "mod", "edit", "-droprequire", r.PackageName); err != nil {
 		return &codev0.CodeResponse{Result: &codev0.CodeResponse_RemoveDependency{RemoveDependency: &codev0.RemoveDependencyResponse{
 			Success: false, Error: fmt.Sprintf("go mod edit: %s", string(out)),
 		}}}, nil
 	}
-	_, _ = c.runTool(ctx,c.SourceDir(), "go", "mod", "tidy")
+	_, _ = c.runTool(ctx, c.SourceDir(), "go", "mod", "tidy")
 	return &codev0.CodeResponse{Result: &codev0.CodeResponse_RemoveDependency{RemoveDependency: &codev0.RemoveDependencyResponse{Success: true}}}, nil
 }
 
@@ -283,81 +260,4 @@ func applyEditResp(success bool, content, strategy, errMsg string, fixActions []
 	return &codev0.CodeResponse{Result: &codev0.CodeResponse_ApplyEdit{ApplyEdit: &codev0.ApplyEditResponse{
 		Success: success, Content: content, Strategy: strategy, Error: errMsg, FixActions: fixActions,
 	}}}
-}
-
-// ── HyperAST-style hash enrichment ────────────────────────
-
-// enrichSymbolHashes reads file content and computes body_hash +
-// signature_hash for each symbol. Called after ListSymbols from the
-// embedded AST-based GoCodeServer.
-func (c *Code) enrichSymbolHashes(symbols []*codev0.Symbol, file string) {
-	absPath := filepath.Join(c.SourceDir(), file)
-	data, err := os.ReadFile(absPath)
-	if err != nil {
-		return
-	}
-	lines := strings.Split(string(data), "\n")
-	for _, sym := range symbols {
-		enrichOneSymbol(sym, lines, "")
-	}
-}
-
-func enrichOneSymbol(sym *codev0.Symbol, lines []string, pkgPrefix string) {
-	if sym.Location == nil {
-		return
-	}
-	qn := sym.Name
-	if sym.Parent != "" {
-		qn = sym.Parent + "." + sym.Name
-	}
-	if pkgPrefix != "" {
-		qn = pkgPrefix + "." + qn
-	}
-	sym.QualifiedName = qn
-	if sym.Signature != "" {
-		sym.SignatureHash = hashStr(sym.Signature)
-	}
-	start := int(sym.Location.Line)
-	end := int(sym.Location.EndLine)
-	kind := sym.Kind
-	if (kind == codev0.SymbolKind_SYMBOL_KIND_FUNCTION || kind == codev0.SymbolKind_SYMBOL_KIND_METHOD) &&
-		start > 0 && end > 0 && end <= len(lines) {
-		body := extractBody(lines, start, end)
-		if body != "" {
-			sym.BodyHash = hashStr(normalizeBody(body))
-		}
-	}
-	for _, child := range sym.Children {
-		enrichOneSymbol(child, lines, "")
-	}
-}
-
-func extractBody(lines []string, start, end int) string {
-	if start < 1 {
-		start = 1
-	}
-	if end > len(lines) {
-		end = len(lines)
-	}
-	if start > end {
-		return ""
-	}
-	return strings.Join(lines[start-1:end], "\n")
-}
-
-func normalizeBody(s string) string {
-	lines := strings.Split(s, "\n")
-	var out []string
-	for _, line := range lines {
-		trimmed := strings.TrimRight(line, " \t\r")
-		if trimmed != "" {
-			out = append(out, trimmed)
-		}
-	}
-	return strings.Join(out, "\n")
-}
-
-func hashStr(s string) string {
-	sum := sha256.Sum256([]byte(s))
-	return hex.EncodeToString(sum[:8])
 }
