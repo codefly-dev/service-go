@@ -32,11 +32,11 @@ const (
 // requirements descriptor. Specializations construct this struct with
 // their own //go:embed directives in their main.go.
 type BuildConfig struct {
-	FactoryFS    embed.FS // templates/factory — service scaffolding
-	BuilderFS    embed.FS // templates/builder — Dockerfile generation
-	DeploymentFS embed.FS // templates/deployment — k8s manifests
-	Requirements *builders.Dependencies
-	GoVersion    string
+	FactoryFS     embed.FS // templates/factory — service scaffolding
+	BuilderFS     embed.FS // templates/builder — Dockerfile generation
+	DeploymentFS  embed.FS // templates/deployment — k8s manifests
+	Requirements  *builders.Dependencies
+	GoVersion     string
 	AlpineVersion string
 }
 
@@ -61,6 +61,9 @@ func (s *Builder) Load(ctx context.Context, req *builderv0.LoadRequest) (*builde
 
 	if err := s.Builder.Load(ctx, req.Identity, s.Settings); err != nil {
 		return nil, err
+	}
+	if err := s.Settings.Validate(); err != nil {
+		return s.Builder.LoadErrorf(err, "invalid Go settings")
 	}
 
 	s.Service.SourceLocation = s.Local("%s", s.Settings.GoSourceDir())

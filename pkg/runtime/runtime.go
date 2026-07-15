@@ -9,12 +9,16 @@ import (
 	"context"
 	"os"
 	"path"
+	"path/filepath"
 
+	"github.com/codefly-dev/core/agents/helpers/code"
 	"github.com/codefly-dev/core/agents/services"
+	"github.com/codefly-dev/core/builders"
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	"github.com/codefly-dev/core/llmout"
 	"github.com/codefly-dev/core/resources"
 	runners "github.com/codefly-dev/core/runners/base"
+	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
 
 	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
@@ -40,7 +44,10 @@ type Runtime struct {
 
 	cacheLocation string
 	runner        runners.Proc
-	testProc      runners.Proc
+	// runnerCancel distinguishes an intentional Stop/hot-reload replacement
+	// from a user process that exited unexpectedly.
+	runnerCancel context.CancelFunc
+	testProc     runners.Proc
 }
 
 // New builds a generic Go Runtime bound to the shared Service.
@@ -59,6 +66,9 @@ func (s *Runtime) Load(ctx context.Context, req *runtimev0.LoadRequest) (*runtim
 
 	if req.DisableCatch {
 		s.Wool.DisableCatch()
+	}
+	if err = s.Settings.Validate(); err != nil {
+		return s.Runtime.LoadErrorf(err, "invalid Go settings")
 	}
 
 	s.Runtime.SetEnvironment(req.Environment)
@@ -182,6 +192,28 @@ func (s *Runtime) Init(ctx context.Context, req *runtimev0.InitRequest) (*runtim
 	}
 
 	s.Wool.Trace("runner init done")
+
+	// A watcher is runtime state, not Init-request state. SetupWatcher detaches
+	// it from the RPC context and Stop owns its lifetime. Re-create it on every
+	// Init so changed settings (including source-dir/hot-reload) take effect.
+	s.Base.StopWatcher()
+	if s.Settings.HotReload {
+		watchSource, relErr := filepath.Rel(s.Location, s.Service.SourceLocation)
+		if relErr != nil {
+			return s.Runtime.InitErrorf(relErr, "resolving source directory for hot reload")
+		}
+		dependencies := builders.NewDependencies("go-runtime",
+			builders.NewDependency("service.codefly.yaml"),
+			builders.NewDependency(watchSource).WithPathSelect(shared.NewSelect("*.go")),
+		)
+		if err = s.SetupWatcher(ctx, services.NewWatchConfiguration(dependencies), s.EventHandler); err != nil {
+			// Hot reload changes Start semantics: compile errors are allowed while
+			// waiting for a later edit. If the watcher cannot start, failing Init is
+			// safer than reporting a dead service as successfully started.
+			return s.Runtime.InitErrorf(err, "setting up hot reload")
+		}
+		s.Watcher.Resume()
+	}
 	return s.Runtime.InitResponse()
 }
 
@@ -192,6 +224,10 @@ func (s *Runtime) Start(ctx context.Context, req *runtimev0.StartRequest) (*runt
 	s.Wool.Info("Building go binary")
 
 	if s.runner != nil {
+		if s.runnerCancel != nil {
+			s.runnerCancel()
+			s.runnerCancel = nil
+		}
 		if err := s.runner.Stop(ctx); err != nil {
 			return s.Runtime.StartError(err)
 		}
@@ -200,21 +236,31 @@ func (s *Runtime) Start(ctx context.Context, req *runtimev0.StartRequest) (*runt
 
 	err := s.RunnerEnvironment.BuildBinary(ctx)
 	if err != nil {
-		// NOTE: unlike the go-grpc agent, this generic runtime never calls
-		// SetupWatcher, so nothing recompiles on a later source change. Returning
-		// success here (as the hot-reload branch used to) left the service dead
-		// forever while codefly reported it running. Until a file watcher is
-		// wired (mirror go-grpc runtime.go SetupWatcher), surface the compile
-		// error on every path instead of faking a successful start.
+		if s.Settings.HotReload && s.Watcher != nil {
+			s.Wool.Info("compile error, waiting for hot-reload")
+			return s.Runtime.StartResponse()
+		}
 		return s.Runtime.StartError(err)
 	}
 
-	runningContext := s.Wool.Inject(context.Background())
 	err = s.EnvironmentVariables.AddEndpoints(ctx, req.DependenciesNetworkMappings, resources.NetworkAccessFromRuntimeContext(s.Runtime.RuntimeContext))
 	if err != nil {
 		return s.Runtime.StartError(err)
 	}
 	s.EnvironmentVariables.SetFixture(req.Fixture)
+	s.EnvironmentVariables.AddOverrides(req.GetOverrides())
+
+	// The service must outlive the Start RPC, but intentional teardown must be
+	// visible to the supervisor before the process is stopped.
+	runningContext, runnerCancel := context.WithCancel(s.Wool.Inject(context.Background()))
+	s.runnerCancel = runnerCancel
+	superviseStarted := false
+	defer func() {
+		if !superviseStarted {
+			runnerCancel()
+			s.runnerCancel = nil
+		}
+	}()
 
 	proc, err := s.RunnerEnvironment.Runner()
 	if err != nil {
@@ -225,12 +271,27 @@ func (s *Runtime) Start(ctx context.Context, req *runtimev0.StartRequest) (*runt
 		return s.Runtime.StartErrorf(err, "getting environment variables")
 	}
 	proc.WithEnvironmentVariables(ctx, startEnvs...)
+	proc.WithOutput(s.Logger)
 
 	s.runner = proc
 	err = s.runner.Start(runningContext)
 	if err != nil {
+		s.runner = nil
 		return s.Runtime.StartErrorf(err, "starting runner")
 	}
+	superviseStarted = true
+	go func(p runners.Proc) {
+		err := p.Wait(runningContext)
+		if runningContext.Err() != nil {
+			return
+		}
+		if err != nil {
+			s.Wool.Error("user binary exited unexpectedly", wool.ErrField(err))
+		} else {
+			s.Wool.Error("user binary exited unexpectedly (clean exit, context not cancelled)")
+		}
+		s.Runtime.MarkRunnerExited(err)
+	}(proc)
 	s.Wool.Trace("runner started successfully")
 	return s.Runtime.StartResponse()
 }
@@ -345,22 +406,22 @@ func (s *Runtime) Stop(ctx context.Context, req *runtimev0.StopRequest) (*runtim
 	defer s.Wool.Catch()
 	ctx = s.Wool.Inject(ctx)
 	s.Wool.Trace("stopping service")
+	// Stop accepting rebuild requests before tearing down the process.
+	s.Base.StopWatcher()
 	if s.testProc != nil {
 		_ = s.testProc.Stop(ctx)
 		s.testProc = nil
 	}
 	if s.runner != nil {
+		if s.runnerCancel != nil {
+			s.runnerCancel()
+			s.runnerCancel = nil
+		}
 		if err := s.runner.Stop(ctx); err != nil {
 			return s.Runtime.StopError(err)
 		}
 		s.runner = nil // released — avoid re-Stopping a dead runner on the next call
 	}
-	// Tear down the file watcher. Cancelling it makes its Start goroutine run
-	// `defer close(Events)` — the single close of the events channel, which also
-	// unblocks the debounce handler. Stop must NOT close s.Events itself: that
-	// second close raced the watcher goroutine into a "close of closed channel"
-	// panic (crashing the agent on every shutdown, including Ctrl-C).
-	s.Base.StopWatcher()
 	return s.Runtime.StopResponse()
 }
 
@@ -377,4 +438,16 @@ func (s *Runtime) Destroy(ctx context.Context, req *runtimev0.DestroyRequest) (*
 		return s.Runtime.DestroyError(err)
 	}
 	return s.Runtime.DestroyResponse()
+}
+
+// EventHandler translates watched configuration changes into lifecycle
+// requests consumed by the orchestrator.
+func (s *Runtime) EventHandler(event code.Change) error {
+	s.Wool.Info("detected change", wool.Field("path", event.Path))
+	if filepath.Base(event.Path) == "service.codefly.yaml" {
+		s.Runtime.DesiredLoad()
+		return nil
+	}
+	s.Runtime.DesiredStart()
+	return nil
 }

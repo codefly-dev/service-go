@@ -8,6 +8,7 @@ import (
 
 	"github.com/codefly-dev/core/agents/services"
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	"github.com/codefly-dev/core/languages"
 	"github.com/codefly-dev/core/resources"
 	runners "github.com/codefly-dev/core/runners/base"
 	golanghelpers "github.com/codefly-dev/core/runners/golang"
@@ -62,19 +63,14 @@ func New(agent *resources.Agent) *Service {
 // package boundaries — each specialization's binary embeds and renders
 // its own.
 func (s *Service) GetAgentInformation(_ context.Context, _ *agentv0.AgentInformationRequest) (*agentv0.AgentInformation, error) {
-	return &agentv0.AgentInformation{
-		RuntimeRequirements: []*agentv0.Runtime{
-			{Type: agentv0.Runtime_GO},
-			{Type: agentv0.Runtime_NIX},
+	return services.Advertisement{
+		Backends: runners.BackendSupport{
+			Local:  func() bool { return languages.HasGoRuntime(nil) },
+			Nix:    true,
+			Docker: true,
 		},
-		Capabilities: []*agentv0.Capability{
-			{Type: agentv0.Capability_BUILDER},
-			{Type: agentv0.Capability_RUNTIME},
-		},
-		Languages: []*agentv0.Language{
-			{Type: agentv0.Language_GO},
-		},
-		Protocols: []*agentv0.Protocol{},
-		ReadMe:    "Generic Go service. Specializations add protocols.",
-	}, nil
+		Toolchains: []agentv0.Toolchain_Type{agentv0.Toolchain_GO},
+		Languages:  []agentv0.Language_Type{agentv0.Language_GO},
+		ReadMe:     "Generic Go service. Specializations add protocols.",
+	}.Build(), nil
 }

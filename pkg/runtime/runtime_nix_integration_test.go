@@ -34,14 +34,15 @@ func requireNixOrSkip(t *testing.T) {
 	}
 }
 
-// TestGoAgent_NixRuntimeContextSelection locks the runtime-context
-// resolver: explicit Nix → Nix. This is what the agent's
-// SetRuntimeContext method calls through to.
-func TestGoAgent_NixRuntimeContextSelection(t *testing.T) {
+// TestGoAgent_NixHintStillUsesLocalFirst locks the resolver contract: Nix is
+// an environment hint rather than a hard per-service pin, so an available Go
+// toolchain wins before Nix. The explicit Nix runner construction is covered
+// by the tests below.
+func TestGoAgent_NixHintStillUsesLocalFirst(t *testing.T) {
 	requireNixOrSkip(t)
 	resolved := golanghelpers.SetGoRuntimeContext(resources.NewRuntimeContextNix())
-	if resolved.Kind != resources.RuntimeContextNix {
-		t.Errorf("expected Nix kind, got %s", resolved.Kind)
+	if resolved.Kind != resources.RuntimeContextNative {
+		t.Errorf("expected local-first native kind, got %s", resolved.Kind)
 	}
 }
 
