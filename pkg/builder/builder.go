@@ -11,6 +11,8 @@ import (
 
 	"github.com/codefly-dev/core/agents/communicate"
 	"github.com/codefly-dev/core/agents/services"
+	"github.com/codefly-dev/core/agents/services/audit"
+	"github.com/codefly-dev/core/agents/services/sbom"
 	"github.com/codefly-dev/core/builders"
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
@@ -114,6 +116,31 @@ func (s *Builder) Build(ctx context.Context, req *builderv0.BuildRequest) (*buil
 	ctx = s.Wool.Inject(ctx)
 	return golanghelpers.BuildGoDocker(ctx, s.Base.Builder, req, s.Location,
 		s.cfg.Requirements, s.cfg.BuilderFS, s.cfg.GoVersion, s.cfg.AlpineVersion)
+}
+
+// Audit is inherited by every Go specialization. Scanner ownership belongs in
+// this language base so a new Go plugin gets a typed, fail-closed security RPC
+// without reimplementing process invocation or result mapping.
+func (s *Builder) Audit(ctx context.Context, req *builderv0.AuditRequest) (*builderv0.AuditResponse, error) {
+	defer s.Wool.Catch()
+	ctx = s.Wool.Inject(ctx)
+	result, err := audit.Golang(ctx, s.Service.SourceLocation, req.GetIncludeOutdated())
+	if err != nil {
+		return s.Builder.AuditError(err)
+	}
+	return s.Builder.AuditResponse(req, result.Findings, result.Outdated, result.Tool, result.Language)
+}
+
+// SBOM is inherited by every Go specialization and inventories the exact
+// GOWORK-disabled module graph selected by go.mod/go.sum.
+func (s *Builder) SBOM(ctx context.Context, _ *builderv0.SBOMRequest) (*builderv0.SBOMResponse, error) {
+	defer s.Wool.Catch()
+	ctx = s.Wool.Inject(ctx)
+	result, err := sbom.Golang(ctx, s.Service.SourceLocation)
+	if err != nil {
+		return s.Builder.SBOMError(err)
+	}
+	return s.Builder.SBOMResponse(result.Bom, result.Tool, result.Language, result.SHA256)
 }
 
 // Deploy renders k8s manifests and applies them.
