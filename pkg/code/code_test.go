@@ -3,11 +3,11 @@ package code
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 	"github.com/codefly-dev/core/resources"
 
@@ -32,10 +32,6 @@ func newTestCode(t *testing.T) (*Code, string) {
 }
 
 func TestFix_GoImports(t *testing.T) {
-	if _, err := exec.LookPath("goimports"); err != nil {
-		t.Skip("goimports not installed, skipping")
-	}
-
 	code, dir := newTestCode(t)
 
 	src := "package main\n\nfunc main() {\n\tfmt.Println(\"hello\")\n}\n"
@@ -51,18 +47,21 @@ func TestFix_GoImports(t *testing.T) {
 	}
 	resp := codeResp.GetFix()
 	if !resp.Success {
-		t.Fatalf("Fix failed: %s", resp.Error)
+		t.Fatalf("Fix failed: %v", codeResp.GetFailure())
 	}
 	if !strings.Contains(resp.Content, `"fmt"`) {
 		t.Errorf("expected goimports to add fmt import, got:\n%s", resp.Content)
 	}
+	if !resp.GetChanged() || !resp.GetWrote() || resp.GetBeforeSha256() == resp.GetAfterSha256() {
+		t.Fatalf("missing fix mutation evidence: %+v", resp)
+	}
+	written, err := os.ReadFile(filepath.Join(dir, "main.go"))
+	if err != nil || string(written) != resp.GetContent() {
+		t.Fatalf("Fix did not commit returned content: err=%v content=%q", err, written)
+	}
 }
 
 func TestFix_GoFmt(t *testing.T) {
-	if _, err := exec.LookPath("gofmt"); err != nil {
-		t.Skip("gofmt not installed, skipping")
-	}
-
 	code, dir := newTestCode(t)
 
 	src := "package main\n\nimport \"fmt\"\n\nfunc main() {\nfmt.Println(   \"hello\"   )\n}\n"
@@ -78,10 +77,57 @@ func TestFix_GoFmt(t *testing.T) {
 	}
 	resp := codeResp.GetFix()
 	if !resp.Success {
-		t.Fatalf("Fix failed: %s", resp.Error)
+		t.Fatalf("Fix failed: %v", codeResp.GetFailure())
 	}
 	if strings.Contains(resp.Content, `"hello"   )`) {
 		t.Errorf("gofmt did not normalize spacing:\n%s", resp.Content)
+	}
+}
+
+func TestFix_DryRunDoesNotWrite(t *testing.T) {
+	code, dir := newTestCode(t)
+	src := "package main\n\nfunc main(){println(\"hello\")}\n"
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	codeResp, err := code.Execute(context.Background(), &codev0.CodeRequest{
+		Operation: &codev0.CodeRequest_Fix{Fix: &codev0.FixRequest{File: "main.go", DryRun: true}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := codeResp.GetFix()
+	if !resp.GetSuccess() || !resp.GetChanged() || resp.GetWrote() {
+		t.Fatalf("dry-run evidence = %+v", resp)
+	}
+	written, err := os.ReadFile(filepath.Join(dir, "main.go"))
+	if err != nil || string(written) != src {
+		t.Fatalf("dry-run changed file: err=%v content=%q", err, written)
+	}
+}
+
+func TestApplyEditRunsSafeFixerByDefault(t *testing.T) {
+	code, dir := newTestCode(t)
+	original := "package main\n\nfunc main() {}\n"
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	codeResp, err := code.Execute(context.Background(), &codev0.CodeRequest{Operation: &codev0.CodeRequest_ApplyEdit{ApplyEdit: &codev0.ApplyEditRequest{
+		File: "main.go", Find: "func main() {}", Replace: "func main() { fmt.Println(\"hello\") }",
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	edit := codeResp.GetApplyEdit()
+	if !edit.GetSuccess() || !edit.GetChanged() || !edit.GetWrote() {
+		t.Fatalf("apply edit = %+v failure=%+v", edit, codeResp.GetFailure())
+	}
+	if !strings.Contains(edit.GetContent(), `"fmt"`) || len(edit.GetFixActions()) != 2 {
+		t.Fatalf("safe fixer was not composed into ApplyEdit:\n%s\nactions=%v", edit.GetContent(), edit.GetFixActions())
+	}
+	written, err := os.ReadFile(filepath.Join(dir, "main.go"))
+	if err != nil || string(written) != edit.GetContent() {
+		t.Fatalf("ApplyEdit did not commit once: err=%v content=%q", err, written)
 	}
 }
 
@@ -98,8 +144,8 @@ func TestFix_NoFile(t *testing.T) {
 	if resp.Success {
 		t.Error("expected Fix to fail for nonexistent file")
 	}
-	if !strings.Contains(resp.Error, "not found") {
-		t.Errorf("expected 'not found' in error, got: %s", resp.Error)
+	if codeResp.GetFailure().GetCode() != basev0.FailureCode_FAILURE_CODE_NOT_FOUND || !strings.Contains(codeResp.GetFailure().GetMessage(), "not found") {
+		t.Errorf("expected typed not-found failure, got: %v", codeResp.GetFailure())
 	}
 }
 
@@ -155,7 +201,7 @@ func TestWriteFile(t *testing.T) {
 	}
 	resp := codeResp.GetWriteFile()
 	if !resp.Success {
-		t.Fatalf("WriteFile failed: %s", resp.Error)
+		t.Fatalf("WriteFile failed: %v", codeResp.GetFailure())
 	}
 
 	got, err := os.ReadFile(filepath.Join(dir, "sub", "lib.go"))

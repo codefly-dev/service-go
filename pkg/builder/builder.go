@@ -7,7 +7,16 @@ package builder
 
 import (
 	"context"
+	"crypto/sha256"
 	"embed"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"sort"
+	"strings"
 
 	"github.com/codefly-dev/core/agents/communicate"
 	"github.com/codefly-dev/core/agents/services"
@@ -141,6 +150,215 @@ func (s *Builder) SBOM(ctx context.Context, _ *builderv0.SBOMRequest) (*builderv
 		return s.Builder.SBOMError(err)
 	}
 	return s.Builder.SBOMResponse(result.Bom, result.Tool, result.Language, result.SHA256)
+}
+
+// Package emits portable Go binaries and release-bound CycloneDX evidence.
+// The operation is plugin-owned and local-first; agent build, CI, and future
+// editor/Mind consumers all call this same typed RPC.
+func (s *Builder) Package(ctx context.Context, req *builderv0.PackageRequest) (*builderv0.PackageResponse, error) {
+	defer s.Wool.Catch()
+	ctx = s.Wool.Inject(ctx)
+	if req == nil {
+		return s.Builder.PackageError(fmt.Errorf("package request is required"))
+	}
+	outputDirectory := filepath.Clean(req.GetOutputDirectory())
+	if !filepath.IsAbs(outputDirectory) {
+		return s.Builder.PackageError(fmt.Errorf("package output_directory must be absolute"))
+	}
+	artifactName := strings.TrimSpace(req.GetArtifactName())
+	if artifactName == "" && s.Identity != nil {
+		artifactName = s.Identity.Name
+	}
+	if artifactName == "" || artifactName == "." || filepath.Base(artifactName) != artifactName || strings.ContainsAny(artifactName, "/\\\x00") {
+		return s.Builder.PackageError(fmt.Errorf("invalid package artifact_name %q", artifactName))
+	}
+	targets, err := normalizePackageTargets(req.GetTargets())
+	if err != nil {
+		return s.Builder.PackageError(err)
+	}
+	if err := os.MkdirAll(outputDirectory, 0o755); err != nil {
+		return s.Builder.PackageError(fmt.Errorf("create package output: %w", err))
+	}
+
+	artifacts := make([]*builderv0.PackageArtifact, 0, len(targets)*2)
+	for _, target := range targets {
+		destinationDirectory := filepath.Join(outputDirectory, target.GetOs()+"-"+target.GetArchitecture())
+		if err := os.MkdirAll(destinationDirectory, 0o755); err != nil {
+			return s.Builder.PackageError(fmt.Errorf("create target output: %w", err))
+		}
+		destination := filepath.Join(destinationDirectory, artifactName)
+		if err := packageGoBinary(ctx, s.Service.SourceLocation, destination, target); err != nil {
+			return s.Builder.PackageError(err)
+		}
+		digest, err := packageFileSHA256(destination)
+		if err != nil {
+			return s.Builder.PackageError(err)
+		}
+		artifacts = append(artifacts, &builderv0.PackageArtifact{
+			Kind:      builderv0.PackageArtifact_EXECUTABLE,
+			Path:      destination,
+			Target:    target,
+			Sha256:    digest,
+			MediaType: "application/vnd.codefly.executable",
+		})
+	}
+
+	if req.GetIncludeSbom() {
+		source, err := sbom.GolangWithOptions(ctx, s.Service.SourceLocation, sbom.GolangOptions{
+			UseWorkspace: s.Settings.WithWorkspace,
+		})
+		if err != nil {
+			return s.Builder.PackageError(fmt.Errorf("generate package SBOM: %w", err))
+		}
+		for _, executable := range append([]*builderv0.PackageArtifact(nil), artifacts...) {
+			subject := req.GetSubject()
+			publisher, name, version := "", artifactName, ""
+			if subject != nil {
+				publisher, name, version = subject.GetPublisher(), subject.GetName(), subject.GetVersion()
+			}
+			if name == "" {
+				name = artifactName
+			}
+			release, err := sbom.AttachArtifact(source, sbom.Artifact{
+				Publisher: publisher,
+				Name:      name,
+				Version:   version,
+				Target:    executable.GetTarget().GetOs() + "/" + executable.GetTarget().GetArchitecture(),
+				SHA256:    executable.GetSha256(),
+			})
+			if err != nil {
+				return s.Builder.PackageError(fmt.Errorf("attach package artifact to SBOM: %w", err))
+			}
+			payload, err := sbom.MarshalCycloneDXJSON(release.Bom)
+			if err != nil {
+				return s.Builder.PackageError(fmt.Errorf("encode package SBOM: %w", err))
+			}
+			destination := executable.GetPath() + ".cdx.json"
+			if err := writePackageFile(destination, append(payload, '\n'), 0o644); err != nil {
+				return s.Builder.PackageError(fmt.Errorf("write package SBOM: %w", err))
+			}
+			digest, err := packageFileSHA256(destination)
+			if err != nil {
+				return s.Builder.PackageError(err)
+			}
+			artifacts = append(artifacts, &builderv0.PackageArtifact{
+				Kind:      builderv0.PackageArtifact_SBOM,
+				Path:      destination,
+				Target:    executable.GetTarget(),
+				Sha256:    digest,
+				MediaType: "application/vnd.cyclonedx+json",
+			})
+		}
+	}
+	sort.Slice(artifacts, func(i, j int) bool {
+		left := artifacts[i].GetTarget().GetOs() + "/" + artifacts[i].GetTarget().GetArchitecture() + "/" + artifacts[i].GetPath()
+		right := artifacts[j].GetTarget().GetOs() + "/" + artifacts[j].GetTarget().GetArchitecture() + "/" + artifacts[j].GetPath()
+		return left < right
+	})
+	return s.Builder.PackageResponse(artifacts)
+}
+
+func normalizePackageTargets(requested []*builderv0.PackageTarget) ([]*builderv0.PackageTarget, error) {
+	if len(requested) == 0 {
+		requested = []*builderv0.PackageTarget{{Os: runtime.GOOS, Architecture: runtime.GOARCH}}
+	}
+	byIdentity := make(map[string]*builderv0.PackageTarget, len(requested))
+	for _, target := range requested {
+		if target == nil || !validPackageTargetComponent(target.GetOs()) || !validPackageTargetComponent(target.GetArchitecture()) {
+			return nil, fmt.Errorf("invalid package target %v", target)
+		}
+		identity := target.GetOs() + "/" + target.GetArchitecture()
+		byIdentity[identity] = &builderv0.PackageTarget{Os: target.GetOs(), Architecture: target.GetArchitecture()}
+	}
+	identities := make([]string, 0, len(byIdentity))
+	for identity := range byIdentity {
+		identities = append(identities, identity)
+	}
+	sort.Strings(identities)
+	targets := make([]*builderv0.PackageTarget, 0, len(identities))
+	for _, identity := range identities {
+		targets = append(targets, byIdentity[identity])
+	}
+	return targets, nil
+}
+
+func validPackageTargetComponent(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, character := range value {
+		if (character < 'a' || character > 'z') && (character < '0' || character > '9') && character != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+func packageGoBinary(ctx context.Context, source, destination string, target *builderv0.PackageTarget) error {
+	temporary, err := os.CreateTemp(filepath.Dir(destination), ".codefly-go-package-*")
+	if err != nil {
+		return fmt.Errorf("prepare package output: %w", err)
+	}
+	temporaryPath := temporary.Name()
+	if err := temporary.Close(); err != nil {
+		_ = os.Remove(temporaryPath)
+		return err
+	}
+	defer os.Remove(temporaryPath)
+	command := exec.CommandContext(ctx, "go", "build", "-o", temporaryPath, ".")
+	command.Dir = source
+	command.Env = append(os.Environ(),
+		"GOOS="+target.GetOs(),
+		"GOARCH="+target.GetArchitecture(),
+	)
+	if target.GetOs() != runtime.GOOS || target.GetArchitecture() != runtime.GOARCH {
+		command.Env = append(command.Env, "CGO_ENABLED=0")
+	}
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("go package %s/%s: %w\n%s", target.GetOs(), target.GetArchitecture(), err, strings.TrimSpace(string(output)))
+	}
+	if err := os.Chmod(temporaryPath, 0o755); err != nil {
+		return err
+	}
+	if err := os.Rename(temporaryPath, destination); err != nil {
+		return err
+	}
+	return nil
+}
+
+func packageFileSHA256(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", hash.Sum(nil)), nil
+}
+
+func writePackageFile(destination string, payload []byte, mode os.FileMode) error {
+	temporary, err := os.CreateTemp(filepath.Dir(destination), ".codefly-package-evidence-*")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(mode); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if _, err := temporary.Write(payload); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	return os.Rename(temporaryPath, destination)
 }
 
 // Deploy renders k8s manifests and applies them.

@@ -5,7 +5,7 @@
 // Current capabilities:
 //   - File / git operations from embedded *corecode.GoCodeServer
 //   - Fix (goimports + gofmt)
-//   - ApplyEdit with auto-fix
+//   - ApplyEdit with safe fixing by default
 //   - AddDependency / RemoveDependency (go get / go mod edit -droprequire)
 package code
 
@@ -13,14 +13,16 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"go/format"
 	"os"
 	"path/filepath"
 
 	corecode "github.com/codefly-dev/core/code"
+	"github.com/codefly-dev/core/failures"
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 	runners "github.com/codefly-dev/core/runners/base"
-	"github.com/codefly-dev/core/wool"
+	"golang.org/x/tools/imports"
 
 	goservice "github.com/codefly-dev/service-go/pkg/service"
 )
@@ -101,20 +103,13 @@ func (c *Code) SourceDir() string {
 
 // registerOverrides wires agent-specific handlers on top of GoCodeServer.
 // GoCodeServer already provides get_project_info and list_dependencies.
-// We add goimports/gofmt fix, auto-fix apply_edit, and dependency mutations.
+// We add a goimports/gofmt source fixer and dependency mutations. The core
+// server composes that fixer into both Fix and ApplyEdit and owns the VFS write.
 func (c *Code) registerOverrides() {
-	c.Override("fix", c.handleFix)
-	c.Override("apply_edit", c.handleApplyEdit)
+	c.SetSourceFixer(c.fixGo)
 	c.Override("add_dependency", c.handleAddDependency)
 	c.Override("remove_dependency", c.handleRemoveDependency)
 	// get_call_graph: served via Tooling gRPC service (not through Execute).
-}
-
-// --- Lazy init wrappers ---
-
-func (c *Code) GetProjectInfo(ctx context.Context, req *codev0.GetProjectInfoRequest) (*codev0.GetProjectInfoResponse, error) {
-	c.EnsureInit()
-	return c.GoCodeServer.GetProjectInfo(ctx, req)
 }
 
 func (c *Code) Execute(ctx context.Context, req *codev0.CodeRequest) (*codev0.CodeResponse, error) {
@@ -122,102 +117,27 @@ func (c *Code) Execute(ctx context.Context, req *codev0.CodeRequest) (*codev0.Co
 	return c.GoCodeServer.Execute(ctx, req)
 }
 
-// --- Go-specific: Fix (goimports + gofmt) ---
-
-func (c *Code) handleFix(ctx context.Context, req *codev0.CodeRequest) (*codev0.CodeResponse, error) {
-	r := req.GetFix()
-	absPath := filepath.Join(c.SourceDir(), r.File)
-	data, err := os.ReadFile(absPath)
+// fixGo uses the same library that backs goimports, with the real source path
+// as context. This avoids temporary /tmp files losing module/package context
+// and removes a host-binary dependency from the edit loop.
+func (c *Code) fixGo(_ context.Context, input corecode.FixInput) (corecode.FixResult, error) {
+	filename := input.Path
+	if !filepath.IsAbs(filename) {
+		filename = filepath.Join(c.SourceDir(), filename)
+	}
+	withImports, err := imports.Process(filename, input.Content, &imports.Options{
+		Comments:   true,
+		Fragment:   false,
+		FormatOnly: false,
+	})
 	if err != nil {
-		return fixResp(false, "", fmt.Sprintf("file not found: %s", r.File), nil), nil
+		return corecode.FixResult{}, fmt.Errorf("goimports: %w", err)
 	}
-
-	tmpFile, err := os.CreateTemp("", "mind-fix-*.go")
+	formatted, err := format.Source(withImports)
 	if err != nil {
-		return fixResp(false, "", fmt.Sprintf("create temp: %v", err), nil), nil
+		return corecode.FixResult{}, fmt.Errorf("gofmt: %w", err)
 	}
-	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath)
-
-	if _, err := tmpFile.Write(data); err != nil {
-		tmpFile.Close()
-		return fixResp(false, "", fmt.Sprintf("write temp: %v", err), nil), nil
-	}
-	tmpFile.Close()
-
-	tmpDir := filepath.Dir(tmpPath)
-	var actions []string
-	if out, err := c.runTool(ctx, tmpDir, "goimports", "-w", tmpPath); err != nil {
-		wool.Get(ctx).In("Code.Fix").Warn("goimports failed", wool.Field("error", string(out)))
-	} else {
-		actions = append(actions, "goimports")
-	}
-	if out, err := c.runTool(ctx, tmpDir, "gofmt", "-w", tmpPath); err != nil {
-		wool.Get(ctx).In("Code.Fix").Warn("gofmt failed", wool.Field("error", string(out)))
-	} else {
-		actions = append(actions, "gofmt")
-	}
-	result, err := os.ReadFile(tmpPath)
-	if err != nil {
-		// Don't report success with empty content — the caller would
-		// otherwise overwrite the user's file with nothing.
-		return fixResp(false, "", fmt.Sprintf("cannot read formatted result: %v", err), actions), nil
-	}
-	return fixResp(true, string(result), "", actions), nil
-}
-
-// --- Go-specific: ApplyEdit with auto-fix ---
-
-func (c *Code) handleApplyEdit(ctx context.Context, req *codev0.CodeRequest) (*codev0.CodeResponse, error) {
-	r := req.GetApplyEdit()
-	absPath := filepath.Join(c.SourceDir(), r.File)
-	data, err := os.ReadFile(absPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return applyEditResp(false, "", "", fmt.Sprintf("file not found: %s", r.File), nil), nil
-		}
-		return nil, fmt.Errorf("reading %s: %w", r.File, err)
-	}
-
-	result := corecode.SmartEdit(string(data), r.Find, r.Replace)
-	if !result.OK {
-		return applyEditResp(false, "", "", "FIND block does not match any content in the file", nil), nil
-	}
-
-	edited := result.Content
-	var fixActions []string
-	if r.AutoFix {
-		tmpFile, tmpErr := os.CreateTemp("", "mind-edit-*.go")
-		if tmpErr == nil {
-			tmpPath := tmpFile.Name()
-			defer os.Remove(tmpPath)
-			if _, werr := tmpFile.Write([]byte(edited)); werr != nil {
-				_ = tmpFile.Close()
-				// A partial/empty temp file would make the formatters below
-				// silently operate on wrong content — fail loudly instead.
-				return applyEditResp(false, "", "", fmt.Sprintf("cannot write temp file: %v", werr), nil), nil
-			}
-			if cerr := tmpFile.Close(); cerr != nil {
-				return applyEditResp(false, "", "", fmt.Sprintf("cannot close temp file: %v", cerr), nil), nil
-			}
-
-			tmpDir := filepath.Dir(tmpPath)
-			if out, fixErr := c.runTool(ctx, tmpDir, "goimports", "-w", tmpPath); fixErr != nil {
-				wool.Get(ctx).In("Code.ApplyEdit").Warn("goimports failed", wool.Field("error", string(out)))
-			} else {
-				fixActions = append(fixActions, "goimports")
-			}
-			if out, fixErr := c.runTool(ctx, tmpDir, "gofmt", "-w", tmpPath); fixErr != nil {
-				wool.Get(ctx).In("Code.ApplyEdit").Warn("gofmt failed", wool.Field("error", string(out)))
-			} else {
-				fixActions = append(fixActions, "gofmt")
-			}
-			if fixed, readErr := os.ReadFile(tmpPath); readErr == nil {
-				edited = string(fixed)
-			}
-		}
-	}
-	return applyEditResp(true, edited, result.Strategy, "", fixActions), nil
+	return corecode.FixResult{Content: formatted, Actions: []string{"goimports", "gofmt"}}, nil
 }
 
 // --- Go-specific: Dependency management ---
@@ -230,9 +150,8 @@ func (c *Code) handleAddDependency(ctx context.Context, req *codev0.CodeRequest)
 	}
 	out, err := c.runTool(ctx, c.SourceDir(), "go", "get", pkg)
 	if err != nil {
-		return &codev0.CodeResponse{Result: &codev0.CodeResponse_AddDependency{AddDependency: &codev0.AddDependencyResponse{
-			Success: false, Error: fmt.Sprintf("go get: %s", string(out)),
-		}}}, nil
+		return failedResponse(&codev0.CodeResponse{Result: &codev0.CodeResponse_AddDependency{AddDependency: &codev0.AddDependencyResponse{Success: false}}},
+			basev0.FailureCode_FAILURE_CODE_PROCESS_FAILED, "code.add-dependency", fmt.Sprintf("go get: %s", string(out))), nil
 	}
 	return &codev0.CodeResponse{Result: &codev0.CodeResponse_AddDependency{AddDependency: &codev0.AddDependencyResponse{Success: true, InstalledVersion: r.Version}}}, nil
 }
@@ -240,9 +159,8 @@ func (c *Code) handleAddDependency(ctx context.Context, req *codev0.CodeRequest)
 func (c *Code) handleRemoveDependency(ctx context.Context, req *codev0.CodeRequest) (*codev0.CodeResponse, error) {
 	r := req.GetRemoveDependency()
 	if out, err := c.runTool(ctx, c.SourceDir(), "go", "mod", "edit", "-droprequire", r.PackageName); err != nil {
-		return &codev0.CodeResponse{Result: &codev0.CodeResponse_RemoveDependency{RemoveDependency: &codev0.RemoveDependencyResponse{
-			Success: false, Error: fmt.Sprintf("go mod edit: %s", string(out)),
-		}}}, nil
+		return failedResponse(&codev0.CodeResponse{Result: &codev0.CodeResponse_RemoveDependency{RemoveDependency: &codev0.RemoveDependencyResponse{Success: false}}},
+			basev0.FailureCode_FAILURE_CODE_PROCESS_FAILED, "code.remove-dependency", fmt.Sprintf("go mod edit: %s", string(out))), nil
 	}
 	_, _ = c.runTool(ctx, c.SourceDir(), "go", "mod", "tidy")
 	return &codev0.CodeResponse{Result: &codev0.CodeResponse_RemoveDependency{RemoveDependency: &codev0.RemoveDependencyResponse{Success: true}}}, nil
@@ -250,14 +168,7 @@ func (c *Code) handleRemoveDependency(ctx context.Context, req *codev0.CodeReque
 
 // --- Helpers ---
 
-func fixResp(success bool, content, errMsg string, actions []string) *codev0.CodeResponse {
-	return &codev0.CodeResponse{Result: &codev0.CodeResponse_Fix{Fix: &codev0.FixResponse{
-		Success: success, Content: content, Error: errMsg, Actions: actions,
-	}}}
-}
-
-func applyEditResp(success bool, content, strategy, errMsg string, fixActions []string) *codev0.CodeResponse {
-	return &codev0.CodeResponse{Result: &codev0.CodeResponse_ApplyEdit{ApplyEdit: &codev0.ApplyEditResponse{
-		Success: success, Content: content, Strategy: strategy, Error: errMsg, FixActions: fixActions,
-	}}}
+func failedResponse(response *codev0.CodeResponse, code basev0.FailureCode, operation, message string) *codev0.CodeResponse {
+	response.Failure = failures.New(code, operation, message)
+	return response
 }

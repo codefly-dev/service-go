@@ -72,5 +72,42 @@ func (s *Service) GetAgentInformation(_ context.Context, _ *agentv0.AgentInforma
 		Toolchains: []agentv0.Toolchain_Type{agentv0.Toolchain_GO},
 		Languages:  []agentv0.Language_Type{agentv0.Language_GO},
 		ReadMe:     "Generic Go service. Specializations add protocols.",
+		Validation: ValidationCapabilities(),
 	}.Build(), nil
+}
+
+// ValidationCapabilities is the authoritative operation contract inherited by
+// generic Go service plugins. It describes semantic operations; local commands,
+// Mind/editor integrations, and CI all dispatch the corresponding Runtime and
+// Builder RPCs.
+func ValidationCapabilities() *agentv0.ValidationCapabilities {
+	workspace := []agentv0.ValidationScope{
+		agentv0.ValidationScope_VALIDATION_SCOPE_WORKSPACE,
+	}
+	operation := func(supported bool) *agentv0.ValidationOperationCapability {
+		return &agentv0.ValidationOperationCapability{
+			Supported: supported,
+			Scopes:    append([]agentv0.ValidationScope(nil), workspace...),
+		}
+	}
+	return &agentv0.ValidationCapabilities{
+		Lint:    operation(true),
+		Compile: operation(true),
+		Test: &agentv0.TestValidationCapability{
+			Supported: true,
+			Scopes:    append([]agentv0.ValidationScope(nil), workspace...),
+			Suites: []*agentv0.TestSuiteCapability{{
+				Name:           "unit",
+				DependencyMode: agentv0.TestDependencyMode_TEST_DEPENDENCY_MODE_NONE,
+				DefaultSuite:   true,
+			}},
+		},
+		Audit:         operation(true),
+		ArtifactBuild: operation(true),
+		Sbom:          operation(true),
+		SourcePackage: operation(true),
+		// Generic Go has no derived source to generate. Its Sync RPC is an
+		// authoritative, non-mutating no-op in both normal and dry-run modes.
+		Sync: operation(true),
+	}
 }

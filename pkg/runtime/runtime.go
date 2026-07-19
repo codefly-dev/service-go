@@ -7,9 +7,11 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/codefly-dev/core/agents/helpers/code"
 	"github.com/codefly-dev/core/agents/services"
@@ -382,7 +384,7 @@ func (s *Runtime) Lint(ctx context.Context, req *runtimev0.LintRequest) (*runtim
 	defer s.Wool.Catch()
 	ctx = s.Wool.Inject(ctx)
 
-	s.Infof("running go vet")
+	s.Infof("running read-only go format/import checks and go vet")
 
 	envs, err := s.EnvironmentVariables.All()
 	if err != nil {
@@ -390,8 +392,11 @@ func (s *Runtime) Lint(ctx context.Context, req *runtimev0.LintRequest) (*runtim
 	}
 
 	opts := golanghelpers.LintOptions{Target: req.Target}
-	output, runErr := golanghelpers.RunGoLint(ctx, s.RunnerEnvironment, s.Service.SourceLocation, envs, opts)
-	compressed := llmout.Compress("go", []string{"vet"}, output)
+	formatOutput, formatErr := checkGoFormatting(s.Service.SourceLocation, req.GetTarget())
+	vetOutput, vetErr := golanghelpers.RunGoLint(ctx, s.RunnerEnvironment, s.Service.SourceLocation, envs, opts)
+	output := strings.TrimSpace(strings.Join([]string{formatOutput, vetOutput}, "\n"))
+	runErr := errors.Join(formatErr, vetErr)
+	compressed := llmout.Compress("go", []string{"format/import-check", "vet"}, output)
 	if runErr != nil {
 		return s.Runtime.LintErrorf(runErr, "lint failed:\n%s", compressed)
 	}

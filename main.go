@@ -20,6 +20,7 @@ import (
 	"github.com/codefly-dev/core/builders"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/shared"
+	"github.com/codefly-dev/core/toolbox/lang"
 
 	gobuilder "github.com/codefly-dev/service-go/pkg/builder"
 	gocode "github.com/codefly-dev/service-go/pkg/code"
@@ -47,6 +48,7 @@ func main() {
 	svc := goservice.New(agent)
 	code := gocode.New(svc)
 	rt := goruntime.New(svc)
+	tooling := gotooling.New(code, rt)
 	agents.Serve(agents.PluginRegistration{
 		Agent:   svc,
 		Runtime: rt,
@@ -59,7 +61,8 @@ func main() {
 			AlpineVersion: AlpineVersion,
 		}),
 		Code:    code,
-		Tooling: gotooling.New(code, rt),
+		Tooling: tooling,
+		Toolbox: lang.NewToolboxFromTooling(agent.Name, agent.Version, tooling),
 	})
 }
 
