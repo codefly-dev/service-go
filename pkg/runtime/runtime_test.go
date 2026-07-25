@@ -106,3 +106,33 @@ func TestUnselectedPass(t *testing.T) {}
 		t.Fatalf("selected result = %s counts=%+v, want only one failing case", resp.GetResult().GetState(), resp.GetCounts())
 	}
 }
+
+func TestRuntimePropagatesFailFastToNativeRunner(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/failfast\n\ngo 1.24\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	testSource := `package failfast
+
+import "testing"
+
+func TestFirstFailure(t *testing.T) { t.Fatal("first") }
+func TestSecondFailure(t *testing.T) { t.Fatal("second") }
+`
+	if err := os.WriteFile(filepath.Join(dir, "failfast_test.go"), []byte(testSource), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	svc := goservice.New(&resources.Agent{Kind: "codefly:service", Name: "go"})
+	svc.SourceLocation = dir
+	rt := goruntime.New(svc)
+	resp, err := rt.Test(context.Background(), &runtimev0.TestRequest{
+		Formula:  &runtimev0.TestFormula{Command: []string{"go", "test", "-json", "./..."}},
+		FailFast: true,
+	})
+	if err != nil {
+		t.Fatalf("Test: %v", err)
+	}
+	if resp.GetCounts().GetFailed() != 1 || resp.GetCounts().GetTotal() != 1 {
+		t.Fatalf("fail-fast counts = %+v, want only the first failing test", resp.GetCounts())
+	}
+}

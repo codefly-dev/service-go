@@ -341,6 +341,7 @@ func (s *Runtime) Test(ctx context.Context, req *runtimev0.TestRequest) (*runtim
 		wool.Field("filters", req.Filters),
 		wool.Field("race", req.Race),
 		wool.Field("coverage", req.Coverage),
+		wool.Field("fail_fast", req.FailFast),
 		wool.Field("timeout", req.Timeout),
 		wool.Field("extra_args", req.ExtraArgs))
 
@@ -365,7 +366,7 @@ func (s *Runtime) Test(ctx context.Context, req *runtimev0.TestRequest) (*runtim
 		if formula := req.GetFormula(); formula != nil {
 			command = formula.GetCommand()
 		}
-		response, runErr := golanghelpers.RunFormula(ctx, s.Service.SourceLocation, command, selectors)
+		response, runErr := golanghelpers.RunFormula(ctx, s.Service.SourceLocation, command, selectors, req.GetFailFast())
 		if acknowledgeErr := selectioncontract.Acknowledge(req, response); acknowledgeErr != nil {
 			return response, errors.Join(runErr, fmt.Errorf("acknowledge typed test selection: %w", acknowledgeErr))
 		}
@@ -383,6 +384,7 @@ func (s *Runtime) Test(ctx context.Context, req *runtimev0.TestRequest) (*runtim
 		Race:      req.Race,
 		Timeout:   req.Timeout,
 		Coverage:  req.Coverage,
+		FailFast:  req.FailFast,
 		Filters:   req.Filters,
 		ExtraArgs: req.ExtraArgs,
 		// Stream per-test events through the logger so the CLI TUI can
