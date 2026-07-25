@@ -8,10 +8,12 @@ package runtime
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/codefly-dev/core/agents/helpers/code"
 	"github.com/codefly-dev/core/agents/services"
@@ -25,6 +27,7 @@ import (
 
 	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
 	golanghelpers "github.com/codefly-dev/core/runners/golang"
+	selectioncontract "github.com/codefly-dev/core/runners/testselection"
 
 	goservice "github.com/codefly-dev/service-go/pkg/service"
 )
@@ -325,6 +328,13 @@ func (s *Runtime) Build(ctx context.Context, req *runtimev0.BuildRequest) (*runt
 func (s *Runtime) Test(ctx context.Context, req *runtimev0.TestRequest) (*runtimev0.TestResponse, error) {
 	defer s.Wool.Catch()
 	ctx = s.Wool.Inject(ctx)
+	started := time.Now()
+	if req == nil {
+		req = &runtimev0.TestRequest{}
+	}
+	if err := selectioncontract.ValidateRequest(req); err != nil {
+		return nil, fmt.Errorf("go runtime: invalid test request: %w", err)
+	}
 
 	s.Wool.Info("running go tests",
 		wool.Field("target", req.Target),
@@ -333,6 +343,34 @@ func (s *Runtime) Test(ctx context.Context, req *runtimev0.TestRequest) (*runtim
 		wool.Field("coverage", req.Coverage),
 		wool.Field("timeout", req.Timeout),
 		wool.Field("extra_args", req.ExtraArgs))
+
+	// Structured formulas and authoritative selections share the core Go
+	// formula runner. It owns Go package/-run grammar, disables accidental
+	// parent go.work inheritance for standalone source checkouts, returns the
+	// structured test tree, and lets the plugin acknowledge the exact typed
+	// selection it honored.
+	if req.GetFormula() != nil || req.GetSelection() != nil {
+		var selectors []string
+		if req.GetSelection() != nil {
+			rendered, err := golanghelpers.RenderTestSelection(req.GetSelection())
+			if err != nil {
+				return nil, fmt.Errorf("go runtime selection: %w", err)
+			}
+			selectors = rendered
+		} else {
+			selectors = append(selectors, req.GetTarget())
+			selectors = append(selectors, req.GetFilters()...)
+		}
+		var command []string
+		if formula := req.GetFormula(); formula != nil {
+			command = formula.GetCommand()
+		}
+		response, runErr := golanghelpers.RunFormula(ctx, s.Service.SourceLocation, command, selectors)
+		if acknowledgeErr := selectioncontract.Acknowledge(req, response); acknowledgeErr != nil {
+			return response, errors.Join(runErr, fmt.Errorf("acknowledge typed test selection: %w", acknowledgeErr))
+		}
+		return response, runErr
+	}
 
 	testEnvs, err := s.EnvironmentVariables.All()
 	if err != nil {
@@ -370,14 +408,33 @@ func (s *Runtime) Test(ctx context.Context, req *runtimev0.TestRequest) (*runtim
 			}
 		},
 	}
-	summary, runErr := golanghelpers.RunGoTests(ctx, s.RunnerEnvironment, s.Service.SourceLocation, testEnvs, opts)
+	execution, runErr := golanghelpers.RunGoTests(ctx, s.RunnerEnvironment, s.Service.SourceLocation, testEnvs, opts)
+	if execution == nil || execution.Structured == nil {
+		if runErr == nil {
+			runErr = fmt.Errorf("go test produced no execution result")
+		}
+		return s.Runtime.TestError(runErr)
+	}
 
-	s.Wool.Forwardf("Tests: %s", summary.SummaryLine())
-	for _, f := range summary.Failures {
+	s.Wool.Forwardf("Tests: %s", execution.SummaryLine())
+	for _, f := range execution.Failures {
 		s.Wool.Forwardf("%s", f)
 	}
 
-	return s.Runtime.TestResponseWithResults(summary.Run, summary.Passed, summary.Failed, summary.Skipped, summary.Coverage, summary.Failures, runErr)
+	response := execution.Structured.ToProtoResponse("go-test", req.GetSuite(), time.Since(started))
+	if runErr != nil && response.GetCounts().GetTotal() == 0 {
+		message := runErr.Error()
+		if reason, detail := golanghelpers.ClassifyEnvError(execution.RawOutput, runErr); reason != "" {
+			message = fmt.Sprintf("env-blocked (%s): %s", reason, detail)
+		}
+		response.Result = &runtimev0.TestRunResult{
+			State: runtimev0.TestRunResult_ERRORED, Message: message,
+		}
+		response.Status = &runtimev0.TestStatus{
+			State: runtimev0.TestStatus_ERROR, Message: message,
+		}
+	}
+	return response, nil
 }
 
 func (s *Runtime) Lint(ctx context.Context, req *runtimev0.LintRequest) (*runtimev0.LintResponse, error) {
