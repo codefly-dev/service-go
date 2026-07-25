@@ -17,6 +17,9 @@ go.work.sum
 *.out
 *.hash
 
+# Local agent CI artifacts (binaries, reports, SBOMs)
+.codefly/
+
 # Editor
 .idea
 .vscode
