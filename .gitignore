@@ -16,6 +16,8 @@ go.work.sum
 # Coverage + cache
 *.out
 *.hash
+
+# Local agent CI artifacts (binaries, reports, SBOMs)
 .codefly/
 
 # Editor
