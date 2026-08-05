@@ -2,13 +2,18 @@ package runtime_test
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	"github.com/codefly-dev/core/agents/helpers/code"
 	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
 	"github.com/codefly-dev/core/resources"
+	golanghelpers "github.com/codefly-dev/core/runners/golang"
 	selectioncontract "github.com/codefly-dev/core/runners/testselection"
 
 	goruntime "github.com/codefly-dev/service-go/pkg/runtime"
@@ -134,5 +139,76 @@ func TestSecondFailure(t *testing.T) { t.Fatal("second") }
 	}
 	if resp.GetCounts().GetFailed() != 1 || resp.GetCounts().GetTotal() != 1 {
 		t.Fatalf("fail-fast counts = %+v, want only the first failing test", resp.GetCounts())
+	}
+}
+
+func TestRuntimeTestExecutesEveryInvocation(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		calls.Add(1)
+	}))
+	t.Cleanup(server.Close)
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/cacheproof\n\ngo 1.24\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	testSource := fmt.Sprintf(`package cacheproof
+
+import (
+	"net/http"
+	"testing"
+)
+
+func TestInvocationReachesCounter(t *testing.T) {
+	response, err := http.Get(%q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := response.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+`, server.URL)
+	if err := os.WriteFile(filepath.Join(dir, "cacheproof_test.go"), []byte(testSource), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := goservice.New(&resources.Agent{Kind: "codefly:service", Name: "go"})
+	svc.SourceLocation = dir
+	rt := goruntime.New(svc)
+	request := &runtimev0.TestRequest{
+		Formula: &runtimev0.TestFormula{Command: []string{"go", "test", "-json", "./..."}},
+	}
+	for attempt := 1; attempt <= 2; attempt++ {
+		response, err := rt.Test(context.Background(), request)
+		if err != nil {
+			t.Fatalf("Test attempt %d: %v", attempt, err)
+		}
+		if response.GetResult().GetState() != runtimev0.TestRunResult_PASSED || response.GetCounts().GetPassed() != 1 {
+			t.Fatalf("attempt %d state = %s counts=%+v", attempt, response.GetResult().GetState(), response.GetCounts())
+		}
+	}
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("formula test binary invocation count = %d, want 2; Runtime.Test reused a successful Go cache result", got)
+	}
+
+	runner, err := golanghelpers.NewNativeGoRunner(context.Background(), dir, ".")
+	if err != nil {
+		t.Fatalf("new native runner: %v", err)
+	}
+	runner.WithWorkspace(false)
+	rt.RunnerEnvironment = runner
+	for attempt := 1; attempt <= 2; attempt++ {
+		response, err := rt.Test(context.Background(), &runtimev0.TestRequest{})
+		if err != nil {
+			t.Fatalf("default Test attempt %d: %v", attempt, err)
+		}
+		if response.GetResult().GetState() != runtimev0.TestRunResult_PASSED || response.GetCounts().GetPassed() != 1 {
+			t.Fatalf("default attempt %d state = %s counts=%+v", attempt, response.GetResult().GetState(), response.GetCounts())
+		}
+	}
+	if got := calls.Load(); got != 4 {
+		t.Fatalf("combined test binary invocation count = %d, want 4; Runtime.Test reused a successful Go cache result", got)
 	}
 }
