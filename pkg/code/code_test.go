@@ -300,3 +300,54 @@ func TestGetProjectInfoReturnsTypedProjectEvidence(t *testing.T) {
 		t.Fatalf("source imports=%+v", imports)
 	}
 }
+
+func TestGetProjectInfoFollowsAttachedSourceSymlink(t *testing.T) {
+	physical := t.TempDir()
+	if err := os.WriteFile(filepath.Join(physical, "go.mod"), []byte("module example.test/attached\n\ngo 1.25\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(physical, "main.go"), []byte("package main\n\nimport \"log/slog\"\n\nfunc main() { slog.Info(\"ready\") }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	attachmentRoot := t.TempDir()
+	attachment := filepath.Join(attachmentRoot, "source")
+	if err := os.Symlink(physical, attachment); err != nil {
+		t.Fatal(err)
+	}
+	svc := goservice.New(&resources.Agent{Kind: "codefly:service", Name: "go"})
+	svc.SourceLocation = attachment
+	code := New(svc)
+
+	response, err := code.Execute(context.Background(), &codev0.CodeRequest{
+		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := response.GetGetProjectInfo()
+	if project == nil || response.GetFailure() != nil {
+		t.Fatalf("project=%+v failure=%+v", project, response.GetFailure())
+	}
+	if len(project.GetSourceFiles()) != 1 || len(project.GetSourceFiles()[0].GetImports()) != 1 || project.GetSourceFiles()[0].GetImports()[0] != "log/slog" {
+		t.Fatalf("source evidence=%+v", project.GetSourceFiles())
+	}
+}
+
+func TestCodeRebindsWhenRuntimeChangesSourceLocation(t *testing.T) {
+	first, _ := newTestCode(t)
+	second := t.TempDir()
+	if err := os.WriteFile(filepath.Join(second, "go.mod"), []byte("module example.test/second\n\ngo 1.25\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	first.Service.SourceLocation = second
+
+	response, err := first.Execute(context.Background(), &codev0.CodeRequest{
+		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := response.GetGetProjectInfo().GetModule(); got != "example.test/second" {
+		t.Fatalf("module after source rebind = %q, want example.test/second", got)
+	}
+}
