@@ -16,6 +16,7 @@ import (
 	"go/format"
 	"os"
 	"path/filepath"
+	"sync"
 
 	corecode "github.com/codefly-dev/core/code"
 	"github.com/codefly-dev/core/failures"
@@ -61,7 +62,8 @@ type Code struct {
 	*corecode.GoCodeServer
 	Service *goservice.Service
 
-	initialized bool
+	serverMu          sync.Mutex
+	initializedSource string
 }
 
 // New builds a generic Go Code server bound to the shared Service.
@@ -76,29 +78,49 @@ func New(svc *goservice.Service) *Code {
 // Exported so specializations that re-point SourceLocation can force a
 // re-init without waiting for lazy init.
 func (c *Code) InitServer() {
-	c.GoCodeServer = corecode.NewGoCodeServer(c.SourceDir(), nil)
+	c.serverMu.Lock()
+	defer c.serverMu.Unlock()
+	c.initServer()
+}
+
+func (c *Code) initServer() {
+	source := c.SourceDir()
+	if c.GoCodeServer != nil && c.initializedSource == source {
+		return
+	}
+	previous := c.GoCodeServer
+	c.GoCodeServer = corecode.NewGoCodeServer(source, nil)
 	c.registerOverrides()
-	c.initialized = true
+	c.initializedSource = source
+	if previous != nil {
+		_ = previous.Close()
+	}
 }
 
 // EnsureInit lazily swaps in a GoCodeServer pointed at the resolved
 // source directory the first time an RPC lands.
 func (c *Code) EnsureInit() {
-	if !c.initialized {
-		c.InitServer()
-	}
+	c.serverMu.Lock()
+	defer c.serverMu.Unlock()
+	c.initServer()
 }
 
 // SourceDir returns the directory to operate on. Resolution:
 // Service.SourceLocation → $CODEFLY_AGENT_WORKDIR → <Location>/code.
 func (c *Code) SourceDir() string {
+	var source string
 	if c.Service.SourceLocation != "" {
-		return c.Service.SourceLocation
+		source = c.Service.SourceLocation
+	} else if wd := os.Getenv("CODEFLY_AGENT_WORKDIR"); wd != "" {
+		source = wd
+	} else {
+		source = c.Service.Location + "/code"
 	}
-	if wd := os.Getenv("CODEFLY_AGENT_WORKDIR"); wd != "" {
-		return wd
+	source = filepath.Clean(source)
+	if physical, err := filepath.EvalSymlinks(source); err == nil {
+		return physical
 	}
-	return c.Service.Location + "/code"
+	return source
 }
 
 // registerOverrides wires agent-specific handlers on top of GoCodeServer.
@@ -113,7 +135,9 @@ func (c *Code) registerOverrides() {
 }
 
 func (c *Code) Execute(ctx context.Context, req *codev0.CodeRequest) (*codev0.CodeResponse, error) {
-	c.EnsureInit()
+	c.serverMu.Lock()
+	defer c.serverMu.Unlock()
+	c.initServer()
 	return c.GoCodeServer.Execute(ctx, req)
 }
 
