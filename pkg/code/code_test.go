@@ -265,3 +265,38 @@ func TestListFiles_NonRecursive(t *testing.T) {
 		}
 	}
 }
+
+func TestGetProjectInfoReturnsTypedProjectEvidence(t *testing.T) {
+	code, dir := newTestCode(t)
+	mod := "module example.test/project\n\ngo 1.25\n\nrequire github.com/google/uuid v1.6.0\n"
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(mod), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n\nimport \"github.com/google/uuid\"\n\nvar id = uuid.New()\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	response, err := code.Execute(context.Background(), &codev0.CodeRequest{
+		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := response.GetGetProjectInfo()
+	if project == nil || response.GetFailure() != nil {
+		t.Fatalf("project info=%+v failure=%+v", project, response.GetFailure())
+	}
+	if project.GetModule() != "example.test/project" || project.GetLanguage() != "go" {
+		t.Fatalf("project identity=%+v", project)
+	}
+	if len(project.GetDependencies()) != 1 || project.GetDependencies()[0].GetName() != "github.com/google/uuid" || !project.GetDependencies()[0].GetDirect() {
+		t.Fatalf("project dependencies=%+v", project.GetDependencies())
+	}
+	if len(project.GetSourceFiles()) != 1 || project.GetSourceFiles()[0].GetPath() != "main.go" {
+		t.Fatalf("project source files=%+v", project.GetSourceFiles())
+	}
+	imports := project.GetSourceFiles()[0].GetImports()
+	if len(imports) != 1 || imports[0] != "github.com/google/uuid" {
+		t.Fatalf("source imports=%+v", imports)
+	}
+}
