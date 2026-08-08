@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -19,6 +20,35 @@ import (
 	goruntime "github.com/codefly-dev/service-go/pkg/runtime"
 	goservice "github.com/codefly-dev/service-go/pkg/service"
 )
+
+func TestRuntimeClassifiesMalformedModuleAsEnvironmentBlock(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("modle example.com/broken\n\ngo 1.24\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "broken_test.go"), []byte("package broken\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	svc := goservice.New(&resources.Agent{Kind: "codefly:service", Name: "go"})
+	svc.SourceLocation = dir
+	runner, err := golanghelpers.NewNativeGoRunner(context.Background(), dir, ".")
+	if err != nil {
+		t.Fatalf("new native runner: %v", err)
+	}
+	runner.WithWorkspace(false)
+	runtime := goruntime.New(svc)
+	runtime.RunnerEnvironment = runner
+
+	response, err := runtime.Test(context.Background(), &runtimev0.TestRequest{})
+	if err != nil {
+		t.Fatalf("Test: %v", err)
+	}
+	if response.GetResult().GetState() != runtimev0.TestRunResult_ERRORED ||
+		!strings.Contains(response.GetResult().GetMessage(), "env-blocked") ||
+		response.GetCounts().GetTotal() != 0 || response.GetCounts().GetFailed() != 0 {
+		t.Fatalf("malformed module response = state=%s message=%q counts=%+v, want ERRORED/env-blocked with zero cases", response.GetResult().GetState(), response.GetResult().GetMessage(), response.GetCounts())
+	}
+}
 
 // TestRuntimeEmbedsService verifies the embedding chain:
 //
