@@ -55,3 +55,29 @@ func TestToolingPropagatesCanonicalCodeFailure(t *testing.T) {
 		t.Fatalf("failure operation = %q, want original code.fix", response.GetFailure().GetOperation())
 	}
 }
+
+func TestToolingForwardsTypedProjectEvidence(t *testing.T) {
+	dir := t.TempDir()
+	goMod := "module example.test/tooling\n\ngo 1.25\n\nrequire github.com/google/uuid v1.6.0\n"
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(goMod), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n\nimport \"github.com/google/uuid\"\n\nvar id = uuid.New()\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	svc := goservice.New(&resources.Agent{Kind: "codefly:service", Name: "go"})
+	svc.SourceLocation = dir
+	code := gocode.New(svc)
+	code.InitServer()
+
+	project, err := gotooling.New(code, goruntime.New(svc)).GetProjectInfo(context.Background(), &toolingv0.GetProjectInfoRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if project.GetFailure() != nil || len(project.GetDependencies()) != 1 || project.GetDependencies()[0].GetName() != "github.com/google/uuid" {
+		t.Fatalf("dependencies=%+v failure=%+v", project.GetDependencies(), project.GetFailure())
+	}
+	if len(project.GetSourceFiles()) != 1 || len(project.GetSourceFiles()[0].GetImports()) != 1 || project.GetSourceFiles()[0].GetImports()[0] != "github.com/google/uuid" {
+		t.Fatalf("source evidence=%+v", project.GetSourceFiles())
+	}
+}
