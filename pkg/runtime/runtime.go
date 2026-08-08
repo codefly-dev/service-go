@@ -415,7 +415,11 @@ func (s *Runtime) Test(ctx context.Context, req *runtimev0.TestRequest) (*runtim
 		if runErr == nil {
 			runErr = fmt.Errorf("go test produced no execution result")
 		}
-		return s.Runtime.TestError(runErr)
+		message := runErr.Error()
+		if reason, detail := golanghelpers.ClassifyEnvError("", runErr); reason != "" {
+			message = fmt.Sprintf("env-blocked (%s): %s", reason, detail)
+		}
+		return s.Runtime.TestError(errors.New(message))
 	}
 
 	s.Wool.Forwardf("Tests: %s", execution.SummaryLine())
