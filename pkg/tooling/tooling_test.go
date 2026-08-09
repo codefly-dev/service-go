@@ -80,4 +80,11 @@ func TestToolingForwardsTypedProjectEvidence(t *testing.T) {
 	if len(project.GetSourceFiles()) != 1 || len(project.GetSourceFiles()[0].GetImports()) != 1 || project.GetSourceFiles()[0].GetImports()[0] != "github.com/google/uuid" {
 		t.Fatalf("source evidence=%+v", project.GetSourceFiles())
 	}
+	semantic, err := gotooling.New(code, goruntime.New(svc)).GetSemanticIndex(context.Background(), &toolingv0.GetSemanticIndexRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if semantic.GetFailure() != nil || semantic.GetIndex().GetState() != basev0.SemanticIndexState_SEMANTIC_INDEX_STATE_COMPLETE || len(semantic.GetIndex().GetSymbols()) == 0 {
+		t.Fatalf("semantic index = %+v", semantic)
+	}
 }
