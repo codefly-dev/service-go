@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 
+	corecode "github.com/codefly-dev/core/code"
 	"github.com/codefly-dev/core/failures"
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
@@ -18,9 +19,9 @@ import (
 	goruntime "github.com/codefly-dev/service-go/pkg/runtime"
 )
 
-// Tooling is the unified command-oriented plugin interface: code edits,
-// dependency/project metadata, and dev validation. Semantic code intelligence
-// belongs to Mind, not this plugin contract.
+// Tooling is the unified command-oriented plugin interface: semantic analysis,
+// code edits, dependency/project metadata, and dev validation. Project bytes
+// remain inside Codefly; Mind receives typed facts only.
 type Tooling struct {
 	toolingv0.UnimplementedToolingServer
 	Code    *gocode.Code
@@ -30,6 +31,12 @@ type Tooling struct {
 // New builds a Tooling server wired to the given Code and Runtime.
 func New(code *gocode.Code, rt *goruntime.Runtime) *Tooling {
 	return &Tooling{Code: code, Runtime: rt}
+}
+
+// GetSemanticIndex delegates the body-free projection to the Core Code server
+// embedded by the Go agent.
+func (t *Tooling) GetSemanticIndex(ctx context.Context, req *toolingv0.GetSemanticIndexRequest) (*toolingv0.GetSemanticIndexResponse, error) {
+	return corecode.NewSourceTooling(t.Code).GetSemanticIndex(ctx, req)
 }
 
 // ── Code Modification ──────────────────────────────────
