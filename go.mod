@@ -5,7 +5,7 @@ go 1.25.12
 toolchain go1.26.4
 
 require (
-	github.com/codefly-dev/core v0.2.87
+	github.com/codefly-dev/core v0.2.95
 	golang.org/x/tools v0.47.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -104,6 +104,7 @@ require (
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	github.com/xlab/treeprint v1.2.0 // indirect
 	github.com/yoheimuta/go-protoparser/v4 v4.14.2 // indirect
+	github.com/yuin/goldmark v1.8.2 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.68.0 // indirect

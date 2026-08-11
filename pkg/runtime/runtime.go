@@ -80,15 +80,16 @@ func (s *Runtime) Load(ctx context.Context, req *runtimev0.LoadRequest) (*runtim
 
 	// Prefer configured source dir (default: code/).
 	// Fall back to service root if source dir has no go.mod (arbitrary Go project).
-	s.Service.SourceLocation, err = s.LocalDirCreate(ctx, "%s", s.Settings.GoSourceDir())
+	sourceLocation, err := s.LocalDirCreate(ctx, "%s", s.Settings.GoSourceDir())
 	if err != nil {
 		return s.Runtime.LoadErrorf(err, "creating source location")
 	}
-	if _, statErr := os.Stat(path.Join(s.Service.SourceLocation, "go.mod")); statErr != nil {
+	if _, statErr := os.Stat(path.Join(sourceLocation, "go.mod")); statErr != nil {
 		if _, rootErr := os.Stat(path.Join(s.Location, "go.mod")); rootErr == nil {
-			s.Service.SourceLocation = s.Location
+			sourceLocation = s.Location
 		}
 	}
+	s.Service.SetSourceLocation(sourceLocation)
 
 	s.cacheLocation, err = s.LocalDirCreate(ctx, ".cache")
 	if err != nil {

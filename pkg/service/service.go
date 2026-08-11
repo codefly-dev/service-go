@@ -5,6 +5,9 @@ package service
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"sync"
 
 	"github.com/codefly-dev/core/agents/services"
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
@@ -32,10 +35,13 @@ type Service struct {
 	*services.Base
 	Settings *Settings
 
-	// SourceLocation is the path to the Go sources, set during Load. It
-	// typically points at `<service>/code` (via Settings.GoSourceDir()) but
-	// falls back to the service root if there's a go.mod there.
+	// SourceLocation is the path to the Go sources. Read-only Code/Tooling can
+	// bind it before Runtime.Load; Runtime and Builder may later reaffirm the
+	// same configured root. It typically points at `<service>/code` (via
+	// Settings.GoSourceDir()) but falls back to the service root when go.mod is
+	// declared there.
 	SourceLocation string
+	sourceMu       sync.RWMutex
 
 	// ActiveEnv is the plugin's active RunnerEnvironment — set by
 	// Runtime.Init via CreateRunnerEnvironment and consumed by Code /
@@ -46,6 +52,48 @@ type Service struct {
 	// Nil before Runtime.Init — call-sites fall back to a fresh
 	// NativeEnvironment for pre-init ops (typically Code file-level).
 	ActiveEnv runners.RunnerEnvironment
+}
+
+// CurrentSourceLocation returns the source root currently shared by Code,
+// Tooling, Runtime, and Builder.
+func (s *Service) CurrentSourceLocation() string {
+	s.sourceMu.RLock()
+	defer s.sourceMu.RUnlock()
+	return s.SourceLocation
+}
+
+// SetSourceLocation atomically rebinds the shared source root.
+func (s *Service) SetSourceLocation(location string) {
+	s.sourceMu.Lock()
+	defer s.sourceMu.Unlock()
+	s.SourceLocation = location
+}
+
+// ResolveSourceLocation binds read-only Code and Tooling traffic to the real
+// configured project source before Runtime.Load. Core owns declaration
+// hydration and attachment resolution; this language layer retains only the
+// Go convention that a root-level go.mod identifies the service root.
+func (s *Service) ResolveSourceLocation(ctx context.Context) (string, error) {
+	s.sourceMu.Lock()
+	defer s.sourceMu.Unlock()
+	if s.SourceLocation != "" {
+		return s.SourceLocation, nil
+	}
+	location, err := s.Base.ResolveSourceLocation(ctx, s.Settings, s.Settings.GoSourceDir)
+	if err != nil {
+		return "", err
+	}
+	if _, statErr := os.Stat(filepath.Join(location, "go.mod")); statErr != nil {
+		root, rootErr := s.Base.ResolveSourceLocation(ctx, s.Settings, nil)
+		if rootErr != nil {
+			return "", rootErr
+		}
+		if _, rootStatErr := os.Stat(filepath.Join(root, "go.mod")); rootStatErr == nil {
+			location = root
+		}
+	}
+	s.SourceLocation = location
+	return location, nil
 }
 
 // New builds a generic Go Service bound to the given agent manifest.

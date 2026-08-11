@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/codefly-dev/core/agents"
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
 	"github.com/codefly-dev/core/resources"
@@ -330,6 +331,49 @@ func TestGetProjectInfoFollowsAttachedSourceSymlink(t *testing.T) {
 	}
 	if len(project.GetSourceFiles()) != 1 || len(project.GetSourceFiles()[0].GetImports()) != 1 || project.GetSourceFiles()[0].GetImports()[0] != "log/slog" {
 		t.Fatalf("source evidence=%+v", project.GetSourceFiles())
+	}
+}
+
+func TestGetProjectInfoLoadsAttachedDeclarationBeforeRuntime(t *testing.T) {
+	physical := t.TempDir()
+	if err := os.WriteFile(filepath.Join(physical, "go.mod"), []byte("module example.test/preload\n\ngo 1.25\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(physical, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	serviceRoot := t.TempDir()
+	agentDefinition := &resources.Agent{Kind: resources.ServiceAgent, Publisher: "codefly.dev", Name: "go", Version: "v0.0.0"}
+	declaration := &resources.Service{
+		Name: "source", Version: "0.0.0", Agent: agentDefinition,
+		Spec: map[string]any{"source-dir": "attached"},
+	}
+	declaration.WithDir(serviceRoot)
+	if err := declaration.Save(t.Context()); err != nil {
+		t.Fatalf("save service declaration: %v", err)
+	}
+	if err := os.Symlink(physical, filepath.Join(serviceRoot, "attached")); err != nil {
+		t.Fatalf("attach source: %v", err)
+	}
+	t.Setenv(agents.WorkDirEnvironment, serviceRoot)
+
+	svc := goservice.New(agentDefinition)
+	server := New(svc)
+	response, err := server.Execute(t.Context(), &codev0.CodeRequest{
+		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
+	})
+	if err != nil {
+		t.Fatalf("pre-runtime project info: %v", err)
+	}
+	if got := response.GetGetProjectInfo().GetModule(); got != "example.test/preload" {
+		t.Fatalf("module = %q, want attached project", got)
+	}
+	physicalResolved, err := filepath.EvalSymlinks(physical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if svc.SourceLocation != physicalResolved || svc.Settings.SourceDir != "attached" {
+		t.Fatalf("source binding = %q settings=%+v, want physical attached source", svc.SourceLocation, svc.Settings)
 	}
 }
 

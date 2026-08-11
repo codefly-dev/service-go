@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/codefly-dev/core/agents"
 	corecode "github.com/codefly-dev/core/code"
 	"github.com/codefly-dev/core/failures"
 	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
@@ -105,16 +106,17 @@ func (c *Code) EnsureInit() {
 	c.initServer()
 }
 
-// SourceDir returns the directory to operate on. Resolution:
-// Service.SourceLocation → $CODEFLY_AGENT_WORKDIR → <Location>/code.
+// SourceDir returns the directory already bound by Execute or Runtime.Load.
+// Its fallback preserves direct construction for agent composition; production
+// requests resolve the authoritative service declaration before this is read.
 func (c *Code) SourceDir() string {
 	var source string
-	if c.Service.SourceLocation != "" {
-		source = c.Service.SourceLocation
-	} else if wd := os.Getenv("CODEFLY_AGENT_WORKDIR"); wd != "" {
-		source = wd
+	if current := c.Service.CurrentSourceLocation(); current != "" {
+		source = current
+	} else if wd := os.Getenv(agents.WorkDirEnvironment); wd != "" {
+		source = filepath.Join(wd, c.Service.Settings.GoSourceDir())
 	} else {
-		source = c.Service.Location + "/code"
+		source = filepath.Join(c.Service.Location, c.Service.Settings.GoSourceDir())
 	}
 	source = filepath.Clean(source)
 	if physical, err := filepath.EvalSymlinks(source); err == nil {
@@ -137,6 +139,9 @@ func (c *Code) registerOverrides() {
 func (c *Code) Execute(ctx context.Context, req *codev0.CodeRequest) (*codev0.CodeResponse, error) {
 	c.serverMu.Lock()
 	defer c.serverMu.Unlock()
+	if _, err := c.Service.ResolveSourceLocation(ctx); err != nil {
+		return nil, fmt.Errorf("resolve Go source: %w", err)
+	}
 	c.initServer()
 	return c.GoCodeServer.Execute(ctx, req)
 }
