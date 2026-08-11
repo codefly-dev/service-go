@@ -6,9 +6,11 @@
 package builder
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"embed"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -17,6 +19,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/codefly-dev/core/agents/communicate"
 	"github.com/codefly-dev/core/agents/services"
@@ -25,6 +28,8 @@ import (
 	"github.com/codefly-dev/core/builders"
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	"github.com/codefly-dev/core/resources"
+	"github.com/codefly-dev/core/runners/companion"
 	golanghelpers "github.com/codefly-dev/core/runners/golang"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/templates"
@@ -305,24 +310,117 @@ func packageGoBinary(ctx context.Context, source, destination string, target *bu
 		return err
 	}
 	defer os.Remove(temporaryPath)
-	command := exec.CommandContext(ctx, "go", "build", "-o", temporaryPath, ".")
-	command.Dir = source
-	command.Env = append(os.Environ(),
-		"GOOS="+target.GetOs(),
-		"GOARCH="+target.GetArchitecture(),
-	)
-	if target.GetOs() != runtime.GOOS || target.GetArchitecture() != runtime.GOARCH {
-		command.Env = append(command.Env, "CGO_ENABLED=0")
-	}
-	output, err := command.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("go package %s/%s: %w\n%s", target.GetOs(), target.GetArchitecture(), err, strings.TrimSpace(string(output)))
+	if target.GetOs() == runtime.GOOS && target.GetArchitecture() == runtime.GOARCH {
+		if err := packageNativeGoBinary(ctx, source, temporaryPath, target); err != nil {
+			return err
+		}
+	} else if err := packageCrossGoBinary(ctx, source, temporaryPath, target); err != nil {
+		return err
 	}
 	if err := os.Chmod(temporaryPath, 0o755); err != nil {
 		return err
 	}
 	if err := os.Rename(temporaryPath, destination); err != nil {
 		return err
+	}
+	return nil
+}
+
+func packageNativeGoBinary(ctx context.Context, source, destination string, target *builderv0.PackageTarget) error {
+	command := exec.CommandContext(ctx, "go", "build", "-trimpath", "-o", destination, ".")
+	command.Dir = source
+	command.Env = append(os.Environ(),
+		"CGO_ENABLED=1",
+		"GOOS="+target.GetOs(),
+		"GOARCH="+target.GetArchitecture(),
+		"GOWORK=off",
+	)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("go package %s/%s with native CGO toolchain: %w\n%s", target.GetOs(), target.GetArchitecture(), err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+type crossCGOToolchain struct {
+	cc  string
+	cxx string
+}
+
+func crossCGOToolchainFor(identity string) (crossCGOToolchain, bool) {
+	switch identity {
+	case "darwin/amd64":
+		return crossCGOToolchain{cc: "o64-clang", cxx: "o64-clang++"}, true
+	case "darwin/arm64":
+		return crossCGOToolchain{cc: "oa64-clang", cxx: "oa64-clang++"}, true
+	case "linux/amd64":
+		return crossCGOToolchain{cc: "x86_64-linux-gnu-gcc", cxx: "x86_64-linux-gnu-g++"}, true
+	case "linux/arm64":
+		return crossCGOToolchain{cc: "aarch64-linux-gnu-gcc", cxx: "aarch64-linux-gnu-g++"}, true
+	default:
+		return crossCGOToolchain{}, false
+	}
+}
+
+func packageCrossGoBinary(ctx context.Context, source, destination string, target *builderv0.PackageTarget) (resultErr error) {
+	identity := target.GetOs() + "/" + target.GetArchitecture()
+	toolchain, supported := crossCGOToolchainFor(identity)
+	if !supported {
+		return fmt.Errorf("go package %s: no CGO cross toolchain; supported cross targets are darwin/amd64, darwin/arm64, linux/amd64, linux/arm64", identity)
+	}
+
+	runner, err := companion.NewCompanionRunner(ctx, companion.CompanionOpts{
+		Name:      fmt.Sprintf("go-package-%s-%s-%d", target.GetOs(), target.GetArchitecture(), time.Now().UnixNano()),
+		SourceDir: source,
+		Image: &resources.DockerImage{
+			Name: "ghcr.io/goreleaser/goreleaser-cross",
+			Tag:  "v1.26.4",
+		},
+		PreferredBackend: companion.BackendDocker,
+	})
+	if err != nil {
+		return fmt.Errorf("go package %s with CGO cross toolchain: %w", identity, err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if shutdownErr := runner.Shutdown(shutdownCtx); shutdownErr != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("shutdown go package %s toolchain: %w", identity, shutdownErr))
+		}
+	}()
+
+	// ARCHITECTURE: goreleaser-cross is a one-shot tool image whose default
+	// entrypoint invokes goreleaser. Package needs the image's real Go and C/C++
+	// toolchains behind Codefly's typed process runner, so it explicitly clears
+	// that entrypoint and keeps the container alive for Docker exec.
+	runner.WithEntrypoint()
+	runner.WithMount(filepath.Dir(destination), filepath.Dir(destination))
+	runner.WithWorkDir(source)
+	runner.WithUser(fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()))
+	runner.WithPause()
+	if err := runner.Init(ctx); err != nil {
+		return fmt.Errorf("initialize go package %s CGO toolchain: %w", identity, err)
+	}
+
+	process, err := runner.NewProcess("go", "build", "-trimpath", "-o", destination, ".")
+	if err != nil {
+		return fmt.Errorf("create go package %s process: %w", identity, err)
+	}
+	process.WithEnvironmentVariables(ctx,
+		resources.Env("CGO_ENABLED", "1"),
+		resources.Env("GOOS", target.GetOs()),
+		resources.Env("GOARCH", target.GetArchitecture()),
+		resources.Env("CC", toolchain.cc),
+		resources.Env("CXX", toolchain.cxx),
+		resources.Env("GOWORK", "off"),
+		resources.Env("GOTOOLCHAIN", "local"),
+		resources.Env("HOME", "/tmp/codefly-home"),
+		resources.Env("GOCACHE", "/tmp/codefly-go-build"),
+	)
+	var output bytes.Buffer
+	process.WithOutput(&output)
+	if err := process.Run(ctx); err != nil {
+		return fmt.Errorf("go package %s with CGO cross toolchain: %w\n%s", identity, err, strings.TrimSpace(output.String()))
 	}
 	return nil
 }
