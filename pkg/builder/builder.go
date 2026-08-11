@@ -77,7 +77,7 @@ func (s *Builder) Load(ctx context.Context, req *builderv0.LoadRequest) (*builde
 		return s.Builder.LoadErrorf(err, "invalid Go settings")
 	}
 
-	s.Service.SourceLocation = s.Local("%s", s.Settings.GoSourceDir())
+	s.Service.SetSourceLocation(s.Local("%s", s.Settings.GoSourceDir()))
 	s.cacheLocation = s.Local(".cache")
 	if s.cfg.Requirements != nil {
 		s.cfg.Requirements.Localize(s.Location)
