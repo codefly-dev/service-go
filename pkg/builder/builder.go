@@ -124,12 +124,105 @@ func (s *Builder) Sync(ctx context.Context, _ *builderv0.SyncRequest) (*builderv
 	return s.Builder.SyncResponse()
 }
 
-// Build produces a Docker image via the shared go builder helper.
+// Build produces a Docker image. When the CLI supplies an output directory it
+// owns the docker build: the agent renders the recipe (Dockerfile + context)
+// into that directory and returns a DockerBuildPlan the CLI builds multi-arch
+// with buildx. With no output directory the agent builds the image in-process
+// via the shared go builder helper.
 func (s *Builder) Build(ctx context.Context, req *builderv0.BuildRequest) (*builderv0.BuildResponse, error) {
 	defer s.Wool.Catch()
 	ctx = s.Wool.Inject(ctx)
+	if out := req.GetOutputDirectory(); out != "" {
+		return s.buildRecipe(ctx, req, out)
+	}
 	return golanghelpers.BuildGoDocker(ctx, s.Base.Builder, req, s.Location,
 		s.cfg.Requirements, s.cfg.BuilderFS, s.cfg.GoVersion, s.cfg.AlpineVersion)
+}
+
+// buildRecipe renders the Dockerfile, dockerignore, and Go source into the
+// caller-owned output directory and returns a single-image DockerBuildPlan. The
+// image becomes a durable, reproducible recipe the CLI rebuilds with buildx, so
+// a consumer never needs the agent toolchain.
+func (s *Builder) buildRecipe(ctx context.Context, req *builderv0.BuildRequest, outputDir string) (*builderv0.BuildResponse, error) {
+	dockerRequest, err := s.Builder.DockerBuildRequest(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	image := s.Builder.DockerImage(dockerRequest)
+
+	docker := golanghelpers.DockerTemplating{
+		Components:    s.cfg.Requirements.All(),
+		GoVersion:     s.cfg.GoVersion,
+		AlpineVersion: s.cfg.AlpineVersion,
+	}
+	err = s.Builder.Templates(ctx, docker,
+		services.WithBuilder(s.cfg.BuilderFS).WithDestination("%s", filepath.Join(outputDir, "builder")))
+	if err != nil {
+		return s.Builder.BuildError(err)
+	}
+
+	if err = copyGoContext(s.SourceLocation, filepath.Join(outputDir, "code")); err != nil {
+		return s.Builder.BuildError(err)
+	}
+
+	recipe := &builderv0.DockerBuildRecipe{
+		Name:         "app",
+		Dockerfile:   "builder/Dockerfile",
+		Context:      ".",
+		Dockerignore: "builder/dockerignore",
+		Image:        image.FullName(),
+		Platforms:    []string{"linux/amd64", "linux/arm64"},
+	}
+	plan, err := services.BuildDockerBuildPlan(outputDir, []*builderv0.DockerBuildRecipe{recipe})
+	if err != nil {
+		return s.Builder.BuildError(err)
+	}
+	s.Builder.WithBuildPlan(plan)
+	return s.Builder.BuildResponse()
+}
+
+// copyGoContext copies the Go source tree at src into dst, preserving file
+// modes. Symlinks and other irregular files are skipped: the recipe inventory
+// rejects symlinks outright, so a copied symlink would fail plan generation.
+func copyGoContext(src, dst string) error {
+	return filepath.WalkDir(src, func(p string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, p)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if entry.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		if !entry.Type().IsRegular() {
+			return nil
+		}
+		return copyFile(p, target)
+	})
+}
+
+func copyFile(src, dst string) error {
+	info, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode().Perm())
+	if err != nil {
+		return err
+	}
+	if _, err = io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
 }
 
 // Audit is inherited by every Go specialization. Scanner ownership belongs in
