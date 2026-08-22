@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:{{ .GoVersion }}-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:{{ .GoVersion }}-alpine AS builder
 
 RUN apk add --no-cache ca-certificates git
 
@@ -7,7 +7,9 @@ WORKDIR /app
 
 COPY code/ ./code/
 WORKDIR /app/code
-RUN go mod download && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags='-w -s -extldflags "-static"' -o app
+ARG TARGETOS
+ARG TARGETARCH
+RUN go mod download && CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} go build -ldflags='-w -s -extldflags "-static"' -o app
 
 # Final stage
 FROM alpine:{{ .AlpineVersion }}
