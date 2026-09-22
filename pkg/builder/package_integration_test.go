@@ -43,7 +43,7 @@ func TestPackageRealCGO(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, content := range map[string]string{
-		"go.mod":            "module example.com/cgo-package-regression\n\ngo 1.27.0\n",
+		"go.mod":            "module example.com/cgo-package-regression\n\ngo 1.27.1\n",
 		"value.go":          "package regression\nconst Value = 42\n",
 		"cmd/agent/main.go": "package main\n/*\nstatic int answer(void) { return 42; }\n*/\nimport \"C\"\nimport (\"fmt\"; regression \"example.com/cgo-package-regression\")\nfunc main() { if int(C.answer()) != regression.Value { panic(\"wrong C result\") }; fmt.Println(regression.Value) }\n",
 	} {
@@ -53,6 +53,10 @@ func TestPackageRealCGO(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(source, name), []byte(content), 0600); err != nil {
 			t.Fatal(err)
 		}
+	}
+	selectedToolchain, err := resolvePackageGoToolchain(ctx, source)
+	if err != nil {
+		t.Fatal(err)
 	}
 	targets := []*builderv0.PackageTarget{
 		{Os: runtime.GOOS, Architecture: runtime.GOARCH},
@@ -81,6 +85,9 @@ func TestPackageRealCGO(t *testing.T) {
 			build, err := buildinfo.ReadFile(destination)
 			if err != nil {
 				t.Fatal(err)
+			}
+			if build.GoVersion != selectedToolchain {
+				t.Fatalf("built with %s, source selected %s", build.GoVersion, selectedToolchain)
 			}
 			settings := map[string]string{}
 			for _, setting := range build.Settings {
