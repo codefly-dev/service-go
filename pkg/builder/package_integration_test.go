@@ -24,6 +24,9 @@ func TestPackageRealCGO(t *testing.T) {
 	if os.Getenv("SERVICE_GO_PACKAGE_TESTS") != "required" {
 		t.Skip("set SERVICE_GO_PACKAGE_TESTS=required for real native/cross packaging")
 	}
+	// The fixture deliberately selects a newer Go than the cross image. CI's
+	// own module uses GOTOOLCHAIN=local; allow selection only for this fixture.
+	t.Setenv("GOTOOLCHAIN", "auto")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	if output, err := exec.CommandContext(ctx, "docker", "info").CombinedOutput(); err != nil {
