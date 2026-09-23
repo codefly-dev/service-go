@@ -1,4 +1,6 @@
 resources:
+{{- if not .Restricted }}
   - namespace.yaml
+{{- end }}
   - deployment.yaml
   - service.yaml
