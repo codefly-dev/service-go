@@ -16,8 +16,15 @@ spec:
     spec:
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30
+      # The image runs as a named user (appuser), and the kubelet cannot prove a
+      # name is non-root, so runAsNonRoot alone refuses to start the container.
+      # A numeric uid can be verified. The static binary runs on alpine, whose
+      # nobody is 65534, the same identity the go-grpc agent pins.
       securityContext:
         runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -29,6 +36,7 @@ spec:
           securityContext:
             allowPrivilegeEscalation: false
             runAsNonRoot: true
+            runAsUser: 65534
             readOnlyRootFilesystem: true
             seccompProfile:
               type: RuntimeDefault

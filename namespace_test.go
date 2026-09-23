@@ -92,3 +92,22 @@ func namespaceDocuments(t *testing.T, root string) []string {
 	}
 	return found
 }
+
+// TestRenderedPodRunsAsNumericUser pins a numeric uid on every rendered
+// profile. The image's USER is a name, and the kubelet refuses a runAsNonRoot
+// container it cannot verify ("image has non-numeric user (appuser), cannot
+// verify user is non-root"), so without a numeric runAsUser no pod starts.
+func TestRenderedPodRunsAsNumericUser(t *testing.T) {
+	for _, profile := range []builderv0.KubernetesOutputProfile{
+		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
+		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
+	} {
+		rendered, err := os.ReadFile(filepath.Join(renderProfile(t, profile), "base", "deployment.yaml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Count(string(rendered), "runAsUser: 65534"); got != 2 {
+			t.Errorf("%s: want runAsUser 65534 on the pod and the container, found %d:\n%s", profile, got, rendered)
+		}
+	}
+}
