@@ -114,3 +114,87 @@ func TestDockerfileFetchesPrivateModulesThroughAnOptionalSecret(t *testing.T) {
 		t.Errorf("runtime stage names GOPRIVATE:\n%s", runtimeStage)
 	}
 }
+
+// renderedRecipe drives Build the way the CLI does and returns the Dockerfile
+// the agent actually emitted. The template alone is not the contract: a
+// rendering that dropped a line would still leave the source looking right.
+func renderedRecipe(t *testing.T) string {
+	t.Helper()
+	b, ctx := loadedBuilder(t)
+	out := filepath.Join(t.TempDir(), "recipe")
+	resp, err := b.Build(ctx, &builderv0.BuildRequest{
+		OutputDirectory: out,
+		BuildContext: &builderv0.BuildContext{
+			Kind: &builderv0.BuildContext_DockerBuildContext{
+				DockerBuildContext: &builderv0.DockerBuildContext{DockerRepository: "registry.example.com"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if resp.GetResult().GetDockerBuildPlan() == nil {
+		t.Fatalf("expected a plan, got state %v message %q",
+			resp.GetState().GetState(), resp.GetState().GetMessage())
+	}
+	contents, err := os.ReadFile(filepath.Join(out, "builder", "Dockerfile"))
+	if err != nil {
+		t.Fatalf("read Dockerfile: %v", err)
+	}
+	return string(contents)
+}
+
+// TestRuntimeStageInstallsNoOSPackages holds the half of the input set that is
+// genuinely reproducible rather than merely recorded. Every FROM in the recipe
+// is pinned by digest, so the package set of a stage that installs nothing is
+// fixed by that digest alone. The runtime stage qualifies: alpine already ships
+// ca-certificates-bundle, which owns /etc/ssl/certs/ca-certificates.crt — the
+// first file crypto/x509 reads on Linux — so a static binary needs no apk at
+// all. Reintroducing one would put an input back into the shipped image that
+// resolves against whatever the Alpine index happens to offer that day, which
+// is exactly the drift the digest pin exists to close.
+func TestRuntimeStageInstallsNoOSPackages(t *testing.T) {
+	rendered := renderedRecipe(t)
+	_, runtimeStage, found := strings.Cut(rendered, "# Final stage")
+	if !found {
+		t.Fatalf("runtime stage marker is missing:\n%s", rendered)
+	}
+	for _, instruction := range strings.Split(strings.ReplaceAll(runtimeStage, "\\\n", " "), "\n") {
+		if !strings.HasPrefix(instruction, "RUN ") {
+			continue
+		}
+		if strings.Contains(instruction, "apk add") || strings.Contains(instruction, "apk upgrade") {
+			t.Errorf("runtime stage installs OS packages, so its input set is no longer fixed by the base digest: %q", instruction)
+		}
+	}
+}
+
+// TestBuilderStagePackagesAreRecordedAsEvidence covers the half that cannot be
+// pinned. The builder stage needs git, which the golang base does not carry,
+// and Alpine's index serves only the current -rN of each package: `git=2.51.0-r0`
+// stops resolving the day 3.24 ships a patch, so a version pin would make every
+// rebuild of an already-published recipe fail. The resolved set is recorded
+// instead and carried into the final image, so the OS-package inputs that
+// produced an artifact are readable from that artifact. Without this, an
+// `apk add` could be added back with nothing recording what it pulled in.
+func TestBuilderStagePackagesAreRecordedAsEvidence(t *testing.T) {
+	rendered := renderedRecipe(t)
+	builderStage, runtimeStage, found := strings.Cut(rendered, "# Final stage")
+	if !found {
+		t.Fatalf("runtime stage marker is missing:\n%s", rendered)
+	}
+	if !strings.Contains(builderStage, "apk info -v") {
+		t.Errorf("builder stage installs packages without recording the resolved set:\n%s", builderStage)
+	}
+	// The record has to reach the artifact. Evidence that dies with the
+	// discarded builder stage answers nobody's question about a published image.
+	const evidence = "/etc/codefly/build-inputs/"
+	if !strings.Contains(runtimeStage, "COPY --from=builder") || !strings.Contains(runtimeStage, evidence) {
+		t.Errorf("builder-stage evidence never reaches the final image at %s:\n%s", evidence, runtimeStage)
+	}
+	for _, record := range []string{"/apk-builder.txt", "/go-build-info.txt", "apk-runtime.txt"} {
+		if !strings.Contains(rendered, record) {
+			t.Errorf("recipe records no %s:\n%s", record, rendered)
+		}
+	}
+}

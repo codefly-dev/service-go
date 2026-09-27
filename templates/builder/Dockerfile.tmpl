@@ -1,5 +1,18 @@
 # syntax=docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32
-# Image tags live here so Dependabot can update the embedded build recipe.
+# Base images are pinned by tag AND digest, and the pair is what makes this
+# recipe reproducible: the digest names the exact bytes, the tag stays readable
+# and keeps the image inside Dependabot's reach. Dependabot's Docker updater
+# matches files by /dockerfile|containerfile/i, so it fetches this .tmpl, and
+# .github/dependabot.yml already points its docker ecosystem at
+# /templates/builder with no `update-types` filter — the filter only recognises
+# semver bumps and would drop a digest update out of the group. It rewrites tag
+# and digest together, weekly. To refresh out of cycle run
+# .github/scripts/refresh-base-digests.sh; never hand-edit a digest.
+#
+# Both digests are OCI image-INDEX digests, not per-platform manifests, so the
+# two platforms pkg/builder declares (linux/amd64, linux/arm64) still resolve
+# through the pin.
+#
 # The Go modules the recipe declares it downloads (go_module_downloads), fetched
 # by the caller on its own machine before any image build and supplied here as
 # the build context of this name, in the Go module proxy layout. Without a
@@ -8,9 +21,16 @@
 FROM scratch AS gomodproxy
 
 # Build stage
-FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 AS builder
 
-RUN apk add --no-cache ca-certificates git
+# git is the one package the pinned base lacks and GOPRIVATE module fetches
+# need; ca-certificates is already in it, so installing it again would add a
+# floating input for nothing. Alpine's index serves only the current -rN of
+# each package, so `git=<version>` stops resolving the day 3.24 ships a patch
+# and every rebuild of an already-published recipe fails — a version pin here
+# buys reproducibility by trading away the ability to rebuild at all. The
+# resolved set is recorded instead, and travels with the image.
+RUN apk add --no-cache git && apk info -v | sort > /apk-builder.txt
 
 WORKDIR /app
 
@@ -33,15 +53,38 @@ ARG GOPRIVATE
 # than being fetched, and go.sum alone verifies them (the caller's fetch was
 # verified against the checksum database on its side). GOPRIVATE is cleared so
 # private paths are read from the proxy like any other.
+#
+# `go version -m` records what actually produced the binary: the toolchain and
+# every module version. The base digest fixes the toolchain shipped in the
+# image, but GOTOOLCHAIN defaults to auto, so a service whose go.mod requires a
+# newer Go makes the go command fetch that toolchain at build time — an input
+# the digest cannot pin. Recording it keeps that substitution visible instead of
+# silent.
 RUN --mount=type=bind,from=gomodproxy,target=/gomodproxy \
     --mount=type=secret,id=netrc,target=/root/.netrc,required=false \
     if [ -n "$(ls -A /gomodproxy)" ]; then export GOPROXY=file:///gomodproxy GOSUMDB=off GOPRIVATE= GONOPROXY= GONOSUMDB=; fi && \
-    go mod download && go mod verify && CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} go build -ldflags='-w -s -extldflags "-static"' -o app
+    go mod download && go mod verify && CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} go build -ldflags='-w -s -extldflags "-static"' -o app && \
+    go version -m app > /go-build-info.txt
 
 # Final stage
-FROM alpine:3.24
+FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
 
-RUN apk add --no-cache ca-certificates
+# No `apk add` here on purpose. The pinned base already ships
+# ca-certificates-bundle, which owns /etc/ssl/certs/ca-certificates.crt — the
+# first path crypto/x509 reads on Linux, and all a static binary needs to verify
+# TLS. Installing the full ca-certificates package on top would only add
+# update-ca-certificates and c_rehash, which nothing here runs, in exchange for
+# an OS-package input the digest does not cover. With that gone the runtime
+# image's package set is determined entirely by the digest above: reproducible,
+# not merely recorded.
+#
+# What is merely recorded is the builder stage, which does install a package.
+# Its resolved set and the Go build info come across here so the inputs that
+# produced this artifact are readable from the artifact. The runtime set is
+# written too: it is fixed by the digest, so two builds that disagree on it are
+# evidence the pin stopped holding.
+COPY --from=builder /apk-builder.txt /go-build-info.txt /etc/codefly/build-inputs/
+RUN apk info -v | sort > /etc/codefly/build-inputs/apk-runtime.txt
 
 WORKDIR /app
 
