@@ -164,10 +164,13 @@ func TestBuildEmitsRecipePlan(t *testing.T) {
 	if len(images) != 2 {
 		t.Fatalf("expected two versioned base images, got %v", images)
 	}
-	literal := regexp.MustCompile(`^(golang|alpine):[0-9][a-zA-Z0-9_.-]*$`)
+	// Tag AND digest: the digest is what makes the input reproducible, the tag
+	// is what keeps Dependabot's Docker updater able to move the pair. A digest
+	// alone parses but leaves the updater nothing to compare versions against.
+	literal := regexp.MustCompile(`^(golang|alpine):[0-9][a-zA-Z0-9_.-]*@sha256:[0-9a-f]{64}$`)
 	for _, image := range images {
 		if !literal.MatchString(image[1]) {
-			t.Errorf("base image %q is not a literal version Dependabot can update", image[1])
+			t.Errorf("base image %q is not a tag-and-digest pin Dependabot can update", image[1])
 		}
 		if !strings.Contains(string(dockerfile), image[0]+"\n") && !strings.Contains(string(dockerfile), image[0]+" AS ") {
 			t.Errorf("rendered Dockerfile does not preserve base image %q", image[1])
