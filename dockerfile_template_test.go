@@ -14,6 +14,11 @@ import (
 // optional so a build with no private module needs no secret at all.
 const netrcMount = "--mount=type=secret,id=netrc,target=/root/.netrc,required=false"
 
+// proxyMount is the build context the recipe declares its module download
+// against: the caller fetches the module graph on the host and supplies it
+// here, so the download needs no credential at all.
+const proxyMount = "--mount=type=bind,from=gomodproxy,target=/gomodproxy"
+
 // TestDockerfileFetchesPrivateModulesThroughAnOptionalSecret holds the contract
 // the CLI builds against for private Go modules: every dependency download runs
 // with the "netrc" BuildKit secret mounted at /root/.netrc, where both git and
@@ -77,20 +82,28 @@ func TestDockerfileFetchesPrivateModulesThroughAnOptionalSecret(t *testing.T) {
 			continue
 		}
 		downloads++
-		if !strings.HasPrefix(instruction, "RUN "+netrcMount+" ") {
-			t.Errorf("dependency download must mount the netrc secret: %q", instruction)
+		// The declared download reads the caller's prefetched modules first
+		// (the gomodproxy bind), and keeps the optional netrc secret for a
+		// caller that supplies no proxy and still passes a credential. Both
+		// mounts belong to the same RUN, in that order.
+		if mounts := strings.Join(strings.Fields(instruction), " "); !strings.HasPrefix(mounts, "RUN "+proxyMount+" "+netrcMount+" ") {
+			t.Errorf("dependency download must read the declared proxy and keep the optional netrc secret: %q", instruction)
 		}
 	}
 	if downloads == 0 {
 		t.Error("rendered recipe downloads no dependencies")
 	}
 
-	// The credential is a mount, never image content.
+	// The credential is a mount, never image content. A RUN spans continuation
+	// lines, so a mount may be the RUN's own line or one of its continuations;
+	// what must never happen is the credential appearing as ENV, COPY or ARG.
 	for _, line := range strings.Split(rendered, "\n") {
 		if !strings.Contains(line, "netrc") {
 			continue
 		}
-		if !strings.HasPrefix(line, "RUN ") && !strings.HasPrefix(line, "#") {
+		trimmed := strings.TrimSpace(line)
+		mount := strings.HasPrefix(trimmed, "RUN ") || strings.HasPrefix(trimmed, "--mount=")
+		if !mount && !strings.HasPrefix(trimmed, "#") {
 			t.Errorf("netrc may only appear on a RUN mount or a comment: %q", line)
 		}
 	}
