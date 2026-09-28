@@ -138,6 +138,14 @@ func (s *Builder) Build(ctx context.Context, req *builderv0.BuildRequest) (*buil
 	return s.buildRecipe(ctx, req, req.GetOutputDirectory())
 }
 
+// goModuleRoot is where buildRecipe copies the service's module inside the
+// recipe context, and so the root the declared module download names.
+const goModuleRoot = "code"
+
+// goModuleProxyContext is the build context the Dockerfile reads the caller's
+// prefetched Go modules from (the `gomodproxy` stage in the template).
+const goModuleProxyContext = "gomodproxy"
+
 // buildRecipe renders the Dockerfile, dockerignore, and Go source into the
 // caller-owned output directory and returns a single-image DockerBuildPlan. The
 // image becomes a durable, reproducible recipe the CLI rebuilds with buildx, so
@@ -179,6 +187,15 @@ func (s *Builder) buildRecipe(ctx context.Context, req *builderv0.BuildRequest, 
 		Dockerignore: "builder/dockerignore",
 		Image:        image.FullName(),
 		Platforms:    []string{"linux/amd64", "linux/arm64"},
+		// The module graph this recipe downloads. Declaring it makes the caller
+		// fetch it on the host, with the host's own credentials, before any
+		// image build, and supply it as the `gomodproxy` build context the
+		// Dockerfile reads: a private module then needs no credential inside
+		// the build. The root is where copyGoContext puts the module below.
+		GoModuleDownloads: []*builderv0.GoModuleDownload{{
+			ModuleRoot:   goModuleRoot,
+			ProxyContext: goModuleProxyContext,
+		}},
 	}
 	plan, err := services.BuildDockerBuildPlan(outputDir, []*builderv0.DockerBuildRecipe{recipe})
 	if err != nil {

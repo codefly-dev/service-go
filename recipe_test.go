@@ -120,8 +120,12 @@ func TestBuildEmitsRecipePlan(t *testing.T) {
 	if recipe.GetContextRoot() != builderv0.RecipeContextRoot_RECIPE_CONTEXT_ROOT_OUTPUT {
 		t.Fatalf("context root = %v; rewritten sources must build from output_directory", recipe.GetContextRoot())
 	}
-	if plan.GetContractVersion() != services.DockerBuildRecipeContextContractVersion {
-		t.Fatalf("context-root recipe requires v4, got %q", plan.GetContractVersion())
+	// v5, not v4: the recipe declares its Go module download as well as an
+	// explicit context root, and core derives the contract from what the
+	// recipe carries. A v4 plan here would mean the declaration was dropped
+	// and the caller prefetches nothing.
+	if plan.GetContractVersion() != services.DockerBuildRecipeGoModulesContractVersion {
+		t.Fatalf("a recipe declaring module downloads requires v5, got %q", plan.GetContractVersion())
 	}
 	if got := recipe.GetPlatforms(); len(got) != 2 || got[0] != "linux/amd64" || got[1] != "linux/arm64" {
 		t.Errorf("platforms = %v", got)
@@ -147,9 +151,18 @@ func TestBuildEmitsRecipePlan(t *testing.T) {
 		t.Fatal(err)
 	}
 	from := regexp.MustCompile(`(?m)^FROM (?:--platform=\S+ )?(\S+)`)
-	images := from.FindAllStringSubmatch(string(source), -1)
+	var images [][]string
+	for _, match := range from.FindAllStringSubmatch(string(source), -1) {
+		// `scratch` is the empty base of the module-proxy stage: it carries no
+		// version, so there is nothing for Dependabot to update and nothing to
+		// hold to the literal-version rule below.
+		if match[1] == "scratch" {
+			continue
+		}
+		images = append(images, match)
+	}
 	if len(images) != 2 {
-		t.Fatalf("expected two base images, got %v", images)
+		t.Fatalf("expected two versioned base images, got %v", images)
 	}
 	literal := regexp.MustCompile(`^(golang|alpine):[0-9][a-zA-Z0-9_.-]*$`)
 	for _, image := range images {
