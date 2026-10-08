@@ -12,6 +12,7 @@ import (
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
+	"github.com/stretchr/testify/require"
 )
 
 // A restricted (promotable) render is committed to a GitOps repository and
@@ -73,13 +74,13 @@ func TestEphemeralRenderStillEmitsTheNamespace(t *testing.T) {
 	}
 }
 
-// restrictedProfiles is the set core treats as restricted: the transport-neutral
-// profile and, for the migration window, its deprecated predecessor, which must
-// render identically.
+// restrictedProfiles is the set core treats as restricted. The migration
+// window closed at core v0.15.0: the deprecated PROMOTABLE_GITOPS_V1
+// predecessor this list also covered no longer exists in the enum, so a
+// render can only be asked for the transport-neutral profile.
 func restrictedProfiles() []builderv0.KubernetesOutputProfile {
 	return []builderv0.KubernetesOutputProfile{
 		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
-		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_PROMOTABLE_GITOPS_V1, //nolint:staticcheck // migration compatibility
 	}
 }
 
@@ -101,7 +102,12 @@ func renderDeploymentTree(t *testing.T, profile builderv0.KubernetesOutputProfil
 		Identity:    identity,
 		Information: &services.Information{Service: resources.ToServiceWithCase(identity), Module: resources.ToModuleWithCase(identity)},
 	}
-	if services.IsRestrictedOutputProfile(profile) {
+	// core v0.15.0 replaced IsRestrictedOutputProfile with a parsed
+	// OutputProfile. Parsed rather than compared, so a profile this agent
+	// does not know is an error here instead of reading as unrestricted.
+	parsedProfile, profileErr := services.ParseOutputProfile(profile)
+	require.NoError(t, profileErr)
+	if parsedProfile.Restricted() {
 		base.SetDockerImage(&resources.DockerImage{
 			Name:   "example/service",
 			Digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
