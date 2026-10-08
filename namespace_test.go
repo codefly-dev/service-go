@@ -13,6 +13,7 @@ import (
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
+	"github.com/stretchr/testify/require"
 )
 
 // TestRestrictedProfileShipsNoNamespace pins the deployment templates to the
@@ -50,7 +51,9 @@ func renderProfile(t *testing.T, profile builderv0.KubernetesOutputProfile) stri
 		Identity:    identity,
 		Information: &services.Information{Service: resources.ToServiceWithCase(identity), Module: resources.ToModuleWithCase(identity)},
 	}
-	if services.IsRestrictedOutputProfile(profile) {
+	parsedProfile, profileErr := services.ParseOutputProfile(profile)
+	require.NoError(t, profileErr)
+	if parsedProfile.Restricted() {
 		base.SetDockerImage(&resources.DockerImage{
 			Name:   "example/service",
 			Digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
