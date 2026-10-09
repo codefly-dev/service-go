@@ -30,9 +30,11 @@ import (
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/companion"
+	"github.com/codefly-dev/core/runners/dockerrun"
 	golanghelpers "github.com/codefly-dev/core/runners/golang"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/templates"
+	"github.com/codefly-dev/core/wool"
 
 	goservice "github.com/codefly-dev/service-go/pkg/service"
 )
@@ -533,7 +535,13 @@ func crossCGOToolchainFor(identity string) (crossCGOToolchain, bool) {
 	}
 }
 
-func packageCrossGoBinary(ctx context.Context, source, entry, destination string, target *builderv0.PackageTarget) (resultErr error) {
+func packageCrossGoBinary(ctx context.Context, source, entry, destination string, target *builderv0.PackageTarget) error {
+	return packageCrossGoBinaryWithRunner(ctx, source, entry, destination, target, companion.NewCompanionRunner)
+}
+
+func packageCrossGoBinaryWithRunner(ctx context.Context, source, entry, destination string, target *builderv0.PackageTarget,
+	newRunner func(context.Context, companion.CompanionOpts) (companion.CompanionRunner, error),
+) (resultErr error) {
 	identity := target.GetOs() + "/" + target.GetArchitecture()
 	toolchain, supported := crossCGOToolchainFor(identity)
 	if !supported {
@@ -544,8 +552,9 @@ func packageCrossGoBinary(ctx context.Context, source, entry, destination string
 		return err
 	}
 
-	runner, err := companion.NewCompanionRunner(ctx, companion.CompanionOpts{
-		Name:      fmt.Sprintf("go-package-%s-%s-%d", target.GetOs(), target.GetArchitecture(), time.Now().UnixNano()),
+	name := fmt.Sprintf("go-package-%s-%s-%d", target.GetOs(), target.GetArchitecture(), time.Now().UnixNano())
+	runner, err := newRunner(ctx, companion.CompanionOpts{
+		Name:      name,
 		SourceDir: source,
 		Image: &resources.DockerImage{
 			Name: "ghcr.io/goreleaser/goreleaser-cross",
@@ -557,9 +566,15 @@ func packageCrossGoBinary(ctx context.Context, source, entry, destination string
 		return fmt.Errorf("go package %s with CGO cross toolchain: %w", identity, err)
 	}
 	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
 		defer cancel()
 		if shutdownErr := runner.Shutdown(shutdownCtx); shutdownErr != nil {
+			// A completed artifact remains usable when the daemon is slow to
+			// remove its toolchain. Other cleanup errors still fail the package.
+			if resultErr == nil && errors.Is(shutdownErr, context.DeadlineExceeded) {
+				wool.Get(ctx).Warn(fmt.Sprintf("go package %s succeeded; timed out shutting down container %s", identity, dockerrun.ContainerName(name)), wool.ErrField(shutdownErr))
+				return
+			}
 			resultErr = errors.Join(resultErr, fmt.Errorf("shutdown go package %s toolchain: %w", identity, shutdownErr))
 		}
 	}()
