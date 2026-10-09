@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/codefly-dev/core/agents/contract"
 	"github.com/codefly-dev/core/agents/services"
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 	"github.com/codefly-dev/core/languages"
@@ -126,7 +127,7 @@ func New(agent *resources.Agent) *Service {
 // package boundaries — each specialization's binary embeds and renders
 // its own.
 func (s *Service) GetAgentInformation(_ context.Context, _ *agentv0.AgentInformationRequest) (*agentv0.AgentInformation, error) {
-	return services.Advertisement{
+	advertisement := services.Advertisement{
 		Backends: runners.BackendSupport{
 			Local:  func() bool { return languages.HasGoRuntime(nil) },
 			Nix:    true,
@@ -137,7 +138,13 @@ func (s *Service) GetAgentInformation(_ context.Context, _ *agentv0.AgentInforma
 		ReadMe:                  "Generic Go service. Specializations add protocols.",
 		Validation:              ValidationCapabilities(),
 		EffectiveInputsVersions: []uint32{1},
-	}.Build(), nil
+	}.Build()
+	// The deployment path is core's DeployKustomize, which judges dependency
+	// edges with the request's composition provenance on this core; the host
+	// requires the live advertisement, not the linked core version.
+	advertisement.Contract = contract.Current()
+	advertisement.Contract.Capabilities = append(advertisement.Contract.Capabilities, contract.DeploymentCompositionProvenance)
+	return advertisement, nil
 }
 
 // ValidationCapabilities is the authoritative operation contract inherited by
