@@ -94,6 +94,29 @@ rather than re-deriving from `go list`.
 
 ## Rules that bite
 
+- **`base/` is a lock, not a sample, and the templates are GENERATED from it.**
+  `templates/factory/code/**` must render byte-for-byte to `base/code/**`. The
+  fix for a wrong template is to edit `base/code`, then regenerate:
+
+  ```bash
+  codefly agent generate --service .      # driven by base/service.generation.codefly.yaml
+  ```
+
+  Never hand-edit a `.tmpl`: it is the output, and the next regeneration
+  silently discards the edit. `TestFactoryTemplatesRenderToBase` is what makes
+  the two impossible to diverge quietly, and Dependabot does not watch
+  `base/code`. Remove build artefacts from `base/code` before regenerating —
+  the generator templatizes whatever it finds, a compiled binary included.
+- **The generated service takes its address from the COMPOSITION.** It resolves
+  with `codefly.For(ctx).API(standards.HTTP).ResolveNetworkInstance()` and
+  refuses to start when that fails. A hardcoded port is wrong the moment two
+  services want it and ignores what the composition assigned, so the service
+  listens where nothing is looking. This agent shipped `Addr: ":8080"` and
+  nothing caught it, because no test ran the service it generates — which is
+  also why `NetworkInstance()` is not used here: it returns nil on failure, so
+  reading `.Port` off it panics with nothing to read and the only symptom is a
+  port that never accepts.
+
 - **`Builder.Build` emits a recipe; it does not build an image.** It renders the
   Dockerfile and copies the source into `<output>/code`, and the CLI runs
   buildx. A service with `source-dir: "."` roots its sources where the CLI puts

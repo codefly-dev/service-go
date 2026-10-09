@@ -1,4 +1,4 @@
-module {{ .Service.Name.DNSCase }}
+module codefly-base
 
 go 1.27.0
 
