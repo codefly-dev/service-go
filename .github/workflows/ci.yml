@@ -8,6 +8,76 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  runtime-image:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    env:
+      LOCK: pkg/runtime/runtime-image.json
+      CONTEXT: pkg/runtime/runtime-image
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.6.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.11.1
+        with:
+          driver-opts: image=moby/buildkit@sha256:2f5adac4ecd194d9f8c10b7b5d7bceb5186853db1b26e5abd3a657af0b7e26ec
+      - name: Build runtime image
+        run: docker buildx build --load --build-arg SOURCE_DATE_EPOCH=0 --tag service-go-runtime:test "$CONTEXT"
+      - name: Smoke test runtime image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm service-go-runtime:test go version | grep -F 'go1.27.2'
+          docker run --rm service-go-runtime:test go env GOTOOLCHAIN | grep -Fx local
+          docker run --rm service-go-runtime:test sh -c 'which git bash jq curl ps'
+      - name: Scan runtime image
+        run: |
+          docker save --output /tmp/service-go-runtime.tar service-go-runtime:test
+          mkdir -p /tmp/trivy-cache
+          docker run --rm \
+            --volume /tmp/trivy-cache:/root/.cache/trivy \
+            --volume /tmp/service-go-runtime.tar:/image.tar:ro \
+            aquasec/trivy@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f \
+            image --quiet --format table --severity HIGH,CRITICAL \
+            --exit-code 1 --input /image.tar
+      # CI has no registry push credentials, so it verifies that the pinned
+      # inputs reproduce the committed digest instead of publishing; the
+      # Runtime image workflow pushes the same build on a runtime-v* tag.
+      - name: Verify runtime image digest is reproducible
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=$(jq -er '.digest' "$LOCK")
+          platforms=$(jq -er '.platforms | join(",")' "$LOCK")
+          docker buildx build --no-cache \
+            --build-arg SOURCE_DATE_EPOCH=0 \
+            --platform "$platforms" \
+            --provenance=false --sbom=false \
+            --output type=oci,dest=/tmp/runtime-oci.tar,rewrite-timestamp=true \
+            --metadata-file /tmp/runtime-meta.json \
+            "$CONTEXT"
+          built=$(jq -er '."containerimage.digest"' /tmp/runtime-meta.json)
+          if [[ "$built" != "$expected" ]]; then
+            echo "built digest $built does not match $LOCK $expected" >&2
+            exit 1
+          fi
+      # Anonymous consumers (every local run in container mode) pull the
+      # pinned image without a registry login. A lock bumped but never
+      # published reproduces cleanly above yet 401/404s for everyone else.
+      - name: Verify runtime image is publicly pullable
+        shell: bash
+        env:
+          DOCKER_CONFIG: /tmp/anon-docker-config
+        run: |
+          set -euo pipefail
+          ref=$(jq -er '.name + "@" + .digest' "$LOCK")
+          mkdir -p "$DOCKER_CONFIG"
+          echo '{}' > "$DOCKER_CONFIG/config.json"
+          if ! docker manifest inspect "$ref" >/dev/null; then
+            echo "pinned runtime image $ref is not anonymously pullable" >&2
+            echo "tag runtime-v<n> so the Runtime image workflow publishes it before pinning the digest" >&2
+            exit 1
+          fi
   build:
     runs-on: ubuntu-latest
     steps:

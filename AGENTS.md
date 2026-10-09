@@ -86,6 +86,7 @@ and a real Go toolchain. If a boundary is hard to reach, reach it anyway.
 | `pkg/code` | Go-specific layer over core's `GoCodeServer`: the in-process formatter/import fixer and the dependency verbs |
 | `pkg/tooling` | adapter only — translates tooling requests onto Code and Runtime |
 | `pkg/builder` | `Create` (scaffold), `Build` (emit the recipe), `Package` (cross-compile with CGO), `Audit`, `SBOM`, `Deploy` |
+| `pkg/runtime/runtime-image/` + `pkg/runtime/runtime-image.json` | the container a Go service builds and runs in (container runtime context): the Dockerfile, and the lock — name, tag, manifest digest, platforms — `RuntimeImage` is read from. Move Go in the Dockerfile, rebuild reproducibly, write the digest into the lock, tag `runtime-v<n>`; `ci.yml` proves the lock reproduces and is anonymously pullable, `runtime-image.yml` publishes it to ghcr.io on the tag |
 | `templates/` | the *content* rendered by core's templator: `factory` (scaffold, never overwrites), `builder` (Dockerfile, regenerated), `deployment` (kustomize) |
 | root `*_test.go` | meta-invariants about CI and repo policy that no package test would notice |
 
