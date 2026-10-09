@@ -32,10 +32,6 @@ import (
 	goservice "github.com/codefly-dev/service-go/pkg/service"
 )
 
-// RuntimeImage is the default runtime Docker image. Specializations can
-// override by reassigning before Init if their layer needs a different base.
-var RuntimeImage = &resources.DockerImage{Name: "codeflydev/go", Tag: "0.0.10"}
-
 // Runtime is the generic Go runtime server. Embedded by specializations
 // (go-grpc, …) to inherit the services.Base chain via *goservice.Service
 // and the full lifecycle methods.
