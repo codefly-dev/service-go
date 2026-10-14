@@ -1,16 +1,18 @@
 # Go Generic Service
 
-Plain Go service (no gRPC). Use this for Layer 1 dogfooding with Mind.
+A plain Go service with a declared, private HTTP endpoint.
 
 ## Structure
 
-- `code/main.go` — entrypoint (minimal HTTP health on :8080 by default)
-- `code/go.mod` — module definition
+- `code/main.go` serves `/health` at the address Codefly assigns to `http`.
+- `code/go.mod` declares the service's dependencies.
+- `service.codefly.yaml` declares the endpoint and development settings.
 
-## Commands
+## Validation and running
 
-- Build: `go build ./...`
-- Test: `go test ./...`
-- Run: run the binary from `code/`
+From `code/`, build with `go build ./...` and test with `go test ./...`.
+Follow the handbook's [Codefly run instructions](https://github.com/obin-ai/handbook/blob/main/getting-started/codefly.md#how-do-i-run-it)
+to run the service with its resolved identity and endpoint. The generated server
+refuses startup when it cannot resolve that address.
 
-Replace the default main with your own logic.
+Replace the default handler with your service's behavior.

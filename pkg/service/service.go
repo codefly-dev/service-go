@@ -143,7 +143,7 @@ func (s *Service) GetAgentInformation(_ context.Context, _ *agentv0.AgentInforma
 	// edges with the request's composition provenance on this core; the host
 	// requires the live advertisement, not the linked core version.
 	advertisement.Contract = contract.Current()
-	advertisement.Contract.Capabilities = append(advertisement.Contract.Capabilities, contract.DeploymentCompositionProvenance)
+	advertisement.Contract.Capabilities = append(advertisement.Contract.Capabilities, contract.DeploymentCompositionProvenance, contract.RuntimeStartedArtifact)
 	return advertisement, nil
 }
 

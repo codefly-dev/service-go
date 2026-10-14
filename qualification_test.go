@@ -94,7 +94,7 @@ func TestSelfBootstrapAdvertisesTheRuntimeContract(t *testing.T) {
 	// this advertisement whether or not this agent honours it, and every claim
 	// here is one a host is entitled to act on. Composition provenance is
 	// honoured: Deploy is core's DeployKustomize, which judges with it.
-	if capabilities := advertisement.GetContract().GetCapabilities(); !slices.Equal(capabilities, []string{contract.ContainerRecoveryScope, contract.DeploymentCompositionProvenance}) {
+	if capabilities := advertisement.GetContract().GetCapabilities(); !slices.Equal(capabilities, []string{contract.ContainerRecoveryScope, contract.DeploymentCompositionProvenance, contract.RuntimeStartedArtifact}) {
 		t.Fatalf("advertised capabilities %v", capabilities)
 	}
 	if acknowledgement := headers.Get(recoveryscope.Header); !slices.Equal(acknowledgement, []string{scope + ":" + namespace}) {
