@@ -118,8 +118,10 @@ rather than re-deriving from `go list`.
   (`os.SameFile`), not by name — a source package named `builder` must still be
   copied.
 - **`agent.codefly.yaml`'s `version` must equal the release tag** (`v0.0.51` →
-  `0.0.51`). It is embedded in the binary and nothing in CI checks it. See
-  `.claude/skills/release-go-agent/`.
+  `0.0.51`). It is embedded in the binary and nothing in CI checks it, which is
+  why `codefly publish` owns both halves: it bumps the manifest and tags the
+  commit carrying that bump. Never edit the version by hand or push the tag
+  yourself. See `.claude/skills/release-go-agent/`.
 - **Releases require CGO** — core's source inspection uses real tree-sitter
   grammars, so every target is built through the `goreleaser-cross` image, whose
   Go version must match `go.mod`. **Known gap:** no image ships Go 1.27.2 yet, so
@@ -151,8 +153,8 @@ carried here:
 
 - `verify-changes` — the full local gate walk derived from `ci.yml`, including
   the two suites that skip silently.
-- `release-go-agent` — cutting a version, and the three contracts a release has
-  to satisfy.
+- `release-go-agent` — releasing with `codefly publish`, and the three contracts
+  a release has to satisfy.
 
 ## Workflow
 
