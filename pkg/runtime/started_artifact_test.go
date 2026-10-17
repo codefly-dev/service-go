@@ -9,12 +9,16 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/codefly-dev/core/agents/services"
+	"github.com/codefly-dev/core/builders"
 	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
 	"github.com/codefly-dev/core/resources"
 	golanghelpers "github.com/codefly-dev/core/runners/golang"
+	"github.com/codefly-dev/core/shared"
 
 	goruntime "github.com/codefly-dev/service-go/pkg/runtime"
 	goservice "github.com/codefly-dev/service-go/pkg/service"
@@ -178,14 +182,14 @@ func TestNativeStartReportsTheExecutableThatRan(t *testing.T) {
 	}
 
 	// The process that the runtime started wrote this token; the reported file,
-	// run on its own, writes the same one. That is the whole claim.
+	// run on its own, writes the same one. That is the whole claim. What the
+	// digest of that file MEANS is held elsewhere: that it moves with the build
+	// by TestNativeRestartReportsTheRebuiltExecutable, and that it is the value
+	// the CLI approves by the cross-checked run recorded in the PR.
 	if ran, reported := ranToken(t, root), tokenOf(t, ctx, executable); ran != reported {
 		t.Fatalf("the reported executable holds %q but the process that ran wrote %q", reported, ran)
 	} else if ran != "build-one" {
 		t.Fatalf("the started process wrote %q, want the compiled-in build-one", ran)
-	}
-	if sha256Of(t, executable) == "" {
-		t.Error("the reported executable has no digest; the consumer approves the build by it")
 	}
 }
 
@@ -210,6 +214,11 @@ func TestNativeRestartReportsTheRebuiltExecutable(t *testing.T) {
 	if ran := ranToken(t, root); ran != "build-one" {
 		t.Fatalf("first process wrote %q, want build-one", ran)
 	}
+	// Read the first build's digest NOW. The runner keeps one executable per
+	// build environment, so the restart below rewrites this very file: the path
+	// cannot distinguish the two builds and the bytes only can while they are
+	// still the first build's. A digest read after the rebuild would equal the
+	// second one and the comparison would hold vacuously.
 	firstDigest := sha256Of(t, firstArtifact.GetExecutable())
 
 	// Change what the service is, and restart it.
@@ -232,8 +241,11 @@ func TestNativeRestartReportsTheRebuiltExecutable(t *testing.T) {
 	if got := tokenOf(t, ctx, secondArtifact.GetExecutable()); got != "build-two" {
 		t.Fatalf("the restart reported an executable holding %q, but build-two is what ran", got)
 	}
+	if got := secondArtifact.GetExecutable(); got != firstArtifact.GetExecutable() {
+		t.Fatalf("the restart reported %q, want the same path %q: the runner keeps one executable per build environment, which is why the bytes are the only discriminator below", got, firstArtifact.GetExecutable())
+	}
 	if secondDigest := sha256Of(t, secondArtifact.GetExecutable()); secondDigest == firstDigest {
-		t.Error("the restart reported the first build's digest; the consumer would approve a build that is no longer running")
+		t.Error("the file the restart reported still holds the first build's bytes; the consumer would approve a build that is no longer running")
 	}
 }
 
@@ -272,4 +284,117 @@ func TestFailedNativeStartReportsNoArtifact(t *testing.T) {
 	if _, err := os.Stat(previous); err != nil {
 		t.Fatalf("the previous executable should still be on disk, simply not this attempt's answer: %v", err)
 	}
+}
+
+// A compile error is a failed start, hot reload or not, and it says why.
+// Answering STARTED with no process would have the host take the workload as
+// running and then refuse to deliver it for reporting no started artifact —
+// blaming this agent for a typo in the user's source. The watcher stays armed
+// either way, so saving a fix still rebuilds in the same session.
+func TestHotReloadCompileErrorIsAFailedStartCarryingTheDiagnostics(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	root := t.TempDir()
+	writeService(t, root, "example.com/hotreload", "build-one")
+	rt := nativeRuntime(t, ctx, root)
+	rt.Settings.HotReload = true
+	if err := rt.SetupWatcher(ctx, services.NewWatchConfiguration(
+		builders.NewDependencies("go-runtime", builders.NewDependency(root).WithPathSelect(shared.NewSelect("*.go"))),
+	), rt.EventHandler); err != nil {
+		t.Fatalf("setting up the watcher: %v", err)
+	}
+	t.Cleanup(rt.Base.StopWatcher)
+	rt.Watcher.Resume()
+
+	write(t, root, "main.go", "package main\n\nfunc main() { notAFunction() }\n")
+
+	resp, err := rt.Start(ctx, &runtimev0.StartRequest{})
+	if err != nil {
+		t.Fatalf("Start returned a transport error, want a failed StartStatus: %v", err)
+	}
+	if state := resp.GetStatus().GetState(); state != runtimev0.StartStatus_ERROR {
+		t.Fatalf("start state = %s, want ERROR: nothing is serving, and STARTED would have the host deliver a workload with no process", state)
+	}
+	if artifact := resp.GetStatus().GetStartedArtifact(); artifact != nil {
+		t.Fatalf("a failed start reported %v", artifact)
+	}
+	if message := resp.GetStatus().GetMessage(); !strings.Contains(message, "notAFunction") {
+		t.Errorf("start message = %q, want the compiler's own diagnostic: the cause is the user's source, and it has to reach them", message)
+	}
+	// The watcher is still armed, so the session survives to rebuild on a fix.
+	if rt.Watcher == nil {
+		t.Error("the watcher was torn down; hot reload could no longer rebuild on save")
+	}
+}
+
+// Start is serialized. The runner writes every build to one constant path, so
+// two overlapping attempts would let one relink the executable the other has
+// already launched from — and the artifact reported for the running process
+// would then describe the other attempt's build, which is the one thing this
+// feature promises it never does.
+func TestConcurrentStartsEachReportTheBuildTheyRan(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	root := t.TempDir()
+	writeService(t, root, "example.com/concurrent", "build-one")
+	rt := nativeRuntime(t, ctx, root)
+
+	// Warm the build so both attempts race the launch rather than the compile.
+	if _, err := rt.Start(ctx, &runtimev0.StartRequest{}); err != nil {
+		t.Fatalf("warm Start: %v", err)
+	}
+
+	const attempts = 4
+	type outcome struct {
+		artifact *runtimev0.StartedArtifact
+		state    runtimev0.StartStatus_Status
+	}
+	results := make(chan outcome, attempts)
+	var ready sync.WaitGroup
+	start := make(chan struct{})
+	for i := 0; i < attempts; i++ {
+		ready.Add(1)
+		go func() {
+			ready.Done()
+			<-start
+			resp, err := rt.Start(ctx, &runtimev0.StartRequest{})
+			if err != nil {
+				results <- outcome{}
+				return
+			}
+			results <- outcome{artifact: resp.GetStatus().GetStartedArtifact(), state: resp.GetStatus().GetState()}
+		}()
+	}
+	ready.Wait()
+	close(start)
+
+	for i := 0; i < attempts; i++ {
+		got := <-results
+		if got.state != runtimev0.StartStatus_STARTED {
+			t.Fatalf("attempt %d state = %s, want STARTED", i, got.state)
+		}
+		if got.artifact.GetExecutable() == "" {
+			t.Fatalf("attempt %d reported no artifact", i)
+		}
+	}
+	// The last attempt to finish owns the process, and the executable on disk
+	// is the build it launched: no attempt relinked it after another launched.
+	if ran, reported := ranToken(t, root), tokenOf(t, ctx, mustExecutable(t, rt, ctx)); ran != reported {
+		t.Fatalf("the surviving process ran %q but the reported executable holds %q", ran, reported)
+	}
+}
+
+// mustExecutable is the artifact of one more serial start, which is the
+// agent's answer for the process now running.
+func mustExecutable(t *testing.T, rt *goruntime.Runtime, ctx context.Context) string {
+	t.Helper()
+	resp, err := rt.Start(ctx, &runtimev0.StartRequest{})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	artifact := startedArtifact(t, resp)
+	if artifact == nil {
+		t.Fatal("no artifact reported")
+	}
+	return artifact.GetExecutable()
 }

@@ -38,6 +38,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/codefly-dev/core/agents/helpers/code"
@@ -69,7 +70,18 @@ type Runtime struct {
 	RunnerEnvironment *golanghelpers.GoRunnerEnvironment
 
 	cacheLocation string
-	runner        runners.Proc
+
+	// startMu gives one start attempt exclusive ownership of runner,
+	// runnerCancel and the binary for its whole duration. gRPC dispatches
+	// every RPC on its own goroutine and nothing upstream promises Start is
+	// called once at a time, while core's runner writes every build to one
+	// constant path — so without this, one attempt can relink the executable
+	// another has already launched from, and the artifact reported for the
+	// running process would describe the other attempt's build. The
+	// specialization go-grpc holds the same lock for the same reason.
+	startMu sync.Mutex
+
+	runner runners.Proc
 	// runnerCancel distinguishes an intentional Stop/hot-reload replacement
 	// from a user process that exited unexpectedly.
 	runnerCancel context.CancelFunc
@@ -259,6 +271,11 @@ func (s *Runtime) Start(ctx context.Context, req *runtimev0.StartRequest) (*runt
 	defer s.Wool.Catch()
 	ctx = s.Wool.Inject(ctx)
 
+	// One attempt at a time: the build, the launch and the report it describes
+	// have to be one attempt. See startMu.
+	s.startMu.Lock()
+	defer s.startMu.Unlock()
+
 	s.Wool.Info("Building go binary")
 
 	if s.runner != nil {
@@ -272,13 +289,27 @@ func (s *Runtime) Start(ctx context.Context, req *runtimev0.StartRequest) (*runt
 		s.runner = nil // don't keep a stopped runner if Start bails before re-assigning
 	}
 
+	// Collect the toolchain's own output so a failed build can say why. Scoped
+	// to the build: core routes this writer to `go mod download` and `go
+	// build` only, never to the service process, whose output goes to the
+	// service logger below.
+	buildLog := shared.NewSliceWriter()
+	s.RunnerEnvironment.WithOutput(buildLog)
 	err := s.RunnerEnvironment.BuildBinary(ctx)
 	if err != nil {
+		// A build that did not produce a binary is a failed start, hot reload or
+		// not. Under hot reload the watcher stays armed, so saving a fix
+		// rebuilds in this same session — but nothing is serving until it
+		// does, and answering STARTED would say otherwise: the host would take
+		// a workload with no process as running and then refuse to deliver it
+		// for reporting no started artifact, naming this agent for what is a
+		// typo in the user's source. The compile error is the answer; go-grpc
+		// already answers this path the same way.
 		if s.Settings.HotReload && s.Watcher != nil {
 			s.Wool.Info("compile error, waiting for hot-reload")
-			return s.Runtime.StartResponse()
 		}
-		return s.Runtime.StartError(err)
+		diagnostics := llmout.Compress("go", []string{"build"}, strings.Join(buildLog.Snapshot(), "\n"))
+		return s.Runtime.StartErrorf(err, "compilation failed:\n%s", diagnostics)
 	}
 
 	err = s.EnvironmentVariables.AddEndpoints(ctx, req.DependenciesNetworkMappings, resources.NetworkAccessFromRuntimeContext(s.Runtime.RuntimeContext))
