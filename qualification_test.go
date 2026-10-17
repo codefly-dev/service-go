@@ -93,8 +93,13 @@ func TestSelfBootstrapAdvertisesTheRuntimeContract(t *testing.T) {
 	// Exact, not "contains": a capability gained through a Core bump reaches
 	// this advertisement whether or not this agent honours it, and every claim
 	// here is one a host is entitled to act on. Composition provenance is
-	// honoured: Deploy is core's DeployKustomize, which judges with it.
-	if capabilities := advertisement.GetContract().GetCapabilities(); !slices.Equal(capabilities, []string{contract.ContainerRecoveryScope, contract.DeploymentCompositionProvenance}) {
+	// honoured: Deploy is core's DeployKustomize, which judges with it. The
+	// started artifact is honoured: Runtime.Start calls ReportStartedArtifact
+	// before StartResponse, which pkg/runtime's started_artifact_test.go holds
+	// against a real native start — a host acts on this claim by approving the
+	// build it is told ran, so claiming it without reporting would have a
+	// native run approve a build nothing proved was running.
+	if capabilities := advertisement.GetContract().GetCapabilities(); !slices.Equal(capabilities, []string{contract.ContainerRecoveryScope, contract.DeploymentCompositionProvenance, contract.RuntimeStartedArtifact}) {
 		t.Fatalf("advertised capabilities %v", capabilities)
 	}
 	if acknowledgement := headers.Get(recoveryscope.Header); !slices.Equal(acknowledgement, []string{scope + ":" + namespace}) {

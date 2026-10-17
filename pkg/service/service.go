@@ -144,6 +144,11 @@ func (s *Service) GetAgentInformation(_ context.Context, _ *agentv0.AgentInforma
 	// requires the live advertisement, not the linked core version.
 	advertisement.Contract = contract.Current()
 	advertisement.Contract.Capabilities = append(advertisement.Contract.Capabilities, contract.DeploymentCompositionProvenance)
+	// Runtime.Start reports what it started, so this agent may say so. The
+	// shared contract never advertises it for every agent built on this core —
+	// that would be the false promise a consumer then trusts — and a
+	// specialization overriding this method owns its own claim.
+	advertisement.Contract.Capabilities = append(advertisement.Contract.Capabilities, contract.RuntimeStartedArtifact)
 	return advertisement, nil
 }
 

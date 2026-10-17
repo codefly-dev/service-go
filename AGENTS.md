@@ -129,6 +129,14 @@ rather than re-deriving from `go list`.
 - **The archive name is a contract with core's downloader**
   (`service-{name}_{version}_{os}_{arch}.tar.gz`). Renaming it breaks install,
   not CI.
+- **A start must say what it ran.** `Runtime.Start` reports the executable it
+  built and launched (`runtime-started-artifact/v1`), and `pkg/service`
+  advertises the capability because it does. A native `codefly run` approves
+  exactly that build and refuses a workload whose agent reports nothing, so a
+  specialization overriding `Start` must report in its own — the breakage is a
+  delivery refusal naming the agent, not a failure inside it. The path comes
+  from `GoRunnerEnvironment.HostExecutable`; never rebuild it from the cache
+  layout. See the `pkg/runtime` package doc.
 - **`Settings` is embedded `yaml:",inline"` by specializations.** Changing its
   shape breaks their YAML fixtures; `pkg/service/service_test.go` guards this.
 - **Root policy tests enforce repo rules**, not behaviour: every workflow `uses:`

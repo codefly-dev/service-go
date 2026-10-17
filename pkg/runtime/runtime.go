@@ -3,6 +3,31 @@
 // full lifecycle and override only what their layer adds — typically
 // Load (additional endpoint wiring) and Init (REST/gRPC env vars).
 // Test, Lint, Build are reused as-is.
+//
+// # What a start reports
+//
+// Start names the program it ran, through core's runtime-started-artifact/v1:
+// it calls RuntimeWrapper.ReportStartedArtifact before StartResponse, and
+// pkg/service advertises the capability because it does. A Go service is a
+// compiled runtime, so the one executable the runner built and launched IS the
+// build — sources stay empty, and the consumer digests that file.
+//
+// This matters beyond this agent: a native `codefly run` approves exactly the
+// build the agent reports and REFUSES a workload whose agent reports nothing
+// (cli#993). So a specialization that overrides Start inherits no reporting and
+// must report in its own, or every service on it becomes undeliverable
+// natively — the failure is a delivery refusal naming the agent, not a crash in
+// it.
+//
+// The executable comes from GoRunnerEnvironment.HostExecutable, never from a
+// path rebuilt here: the runner owns the binary's name and each backend's
+// layout, and it answers false exactly where there is nothing to report — no
+// successful build (so a failed start reports nothing, which core also enforces
+// by discarding a report on StartError), and a container runtime whose
+// executable exists only inside the companion. Every report is absolute, and
+// every start reports again, because core consumes the report on each
+// StartResponse: a silent restart would have the previous process's build
+// approved for the one now running.
 package runtime
 
 import (
@@ -13,6 +38,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/codefly-dev/core/agents/helpers/code"
@@ -44,7 +70,18 @@ type Runtime struct {
 	RunnerEnvironment *golanghelpers.GoRunnerEnvironment
 
 	cacheLocation string
-	runner        runners.Proc
+
+	// startMu gives one start attempt exclusive ownership of runner,
+	// runnerCancel and the binary for its whole duration. gRPC dispatches
+	// every RPC on its own goroutine and nothing upstream promises Start is
+	// called once at a time, while core's runner writes every build to one
+	// constant path — so without this, one attempt can relink the executable
+	// another has already launched from, and the artifact reported for the
+	// running process would describe the other attempt's build. The
+	// specialization go-grpc holds the same lock for the same reason.
+	startMu sync.Mutex
+
+	runner runners.Proc
 	// runnerCancel distinguishes an intentional Stop/hot-reload replacement
 	// from a user process that exited unexpectedly.
 	runnerCancel context.CancelFunc
@@ -234,6 +271,11 @@ func (s *Runtime) Start(ctx context.Context, req *runtimev0.StartRequest) (*runt
 	defer s.Wool.Catch()
 	ctx = s.Wool.Inject(ctx)
 
+	// One attempt at a time: the build, the launch and the report it describes
+	// have to be one attempt. See startMu.
+	s.startMu.Lock()
+	defer s.startMu.Unlock()
+
 	s.Wool.Info("Building go binary")
 
 	if s.runner != nil {
@@ -247,13 +289,27 @@ func (s *Runtime) Start(ctx context.Context, req *runtimev0.StartRequest) (*runt
 		s.runner = nil // don't keep a stopped runner if Start bails before re-assigning
 	}
 
+	// Collect the toolchain's own output so a failed build can say why. Scoped
+	// to the build: core routes this writer to `go mod download` and `go
+	// build` only, never to the service process, whose output goes to the
+	// service logger below.
+	buildLog := shared.NewSliceWriter()
+	s.RunnerEnvironment.WithOutput(buildLog)
 	err := s.RunnerEnvironment.BuildBinary(ctx)
 	if err != nil {
+		// A build that did not produce a binary is a failed start, hot reload or
+		// not. Under hot reload the watcher stays armed, so saving a fix
+		// rebuilds in this same session — but nothing is serving until it
+		// does, and answering STARTED would say otherwise: the host would take
+		// a workload with no process as running and then refuse to deliver it
+		// for reporting no started artifact, naming this agent for what is a
+		// typo in the user's source. The compile error is the answer; go-grpc
+		// already answers this path the same way.
 		if s.Settings.HotReload && s.Watcher != nil {
 			s.Wool.Info("compile error, waiting for hot-reload")
-			return s.Runtime.StartResponse()
 		}
-		return s.Runtime.StartError(err)
+		diagnostics := llmout.Compress("go", []string{"build"}, strings.Join(buildLog.Snapshot(), "\n"))
+		return s.Runtime.StartErrorf(err, "compilation failed:\n%s", diagnostics)
 	}
 
 	err = s.EnvironmentVariables.AddEndpoints(ctx, req.DependenciesNetworkMappings, resources.NetworkAccessFromRuntimeContext(s.Runtime.RuntimeContext))
@@ -306,6 +362,24 @@ func (s *Runtime) Start(ctx context.Context, req *runtimev0.StartRequest) (*runt
 		s.Runtime.MarkRunnerExited(err)
 	}(proc)
 	s.Wool.Trace("runner started successfully")
+
+	// Say what ran (runtime-started-artifact/v1). A native run approves exactly
+	// the build the agent names, so this is the executable the runner just
+	// launched — asked of the runner that built it, never rebuilt from a cache
+	// layout here. StartResponse below stamps it and consumes it, so every
+	// start reports again: a restart that stayed silent would have the previous
+	// process's build approved for this one.
+	//
+	// Unreported is a refusal downstream, and the two cases that reach it are
+	// both correct. A container runtime's executable exists only inside the
+	// companion, so there is no host file for a consumer to digest. And a build
+	// that failed left nothing running to describe: on the hot-reload path above
+	// this returns a started response while waiting for an edit, and the service
+	// is genuinely not serving there.
+	if executable, reported := s.RunnerEnvironment.HostExecutable(); reported {
+		s.Wool.Trace("reporting started artifact", wool.FileField(executable))
+		s.Runtime.ReportStartedArtifact(&runtimev0.StartedArtifact{Executable: executable})
+	}
 	return s.Runtime.StartResponse()
 }
 
