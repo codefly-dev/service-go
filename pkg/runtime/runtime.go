@@ -3,6 +3,31 @@
 // full lifecycle and override only what their layer adds — typically
 // Load (additional endpoint wiring) and Init (REST/gRPC env vars).
 // Test, Lint, Build are reused as-is.
+//
+// # What a start reports
+//
+// Start names the program it ran, through core's runtime-started-artifact/v1:
+// it calls RuntimeWrapper.ReportStartedArtifact before StartResponse, and
+// pkg/service advertises the capability because it does. A Go service is a
+// compiled runtime, so the one executable the runner built and launched IS the
+// build — sources stay empty, and the consumer digests that file.
+//
+// This matters beyond this agent: a native `codefly run` approves exactly the
+// build the agent reports and REFUSES a workload whose agent reports nothing
+// (cli#993). So a specialization that overrides Start inherits no reporting and
+// must report in its own, or every service on it becomes undeliverable
+// natively — the failure is a delivery refusal naming the agent, not a crash in
+// it.
+//
+// The executable comes from GoRunnerEnvironment.HostExecutable, never from a
+// path rebuilt here: the runner owns the binary's name and each backend's
+// layout, and it answers false exactly where there is nothing to report — no
+// successful build (so a failed start reports nothing, which core also enforces
+// by discarding a report on StartError), and a container runtime whose
+// executable exists only inside the companion. Every report is absolute, and
+// every start reports again, because core consumes the report on each
+// StartResponse: a silent restart would have the previous process's build
+// approved for the one now running.
 package runtime
 
 import (
@@ -306,6 +331,24 @@ func (s *Runtime) Start(ctx context.Context, req *runtimev0.StartRequest) (*runt
 		s.Runtime.MarkRunnerExited(err)
 	}(proc)
 	s.Wool.Trace("runner started successfully")
+
+	// Say what ran (runtime-started-artifact/v1). A native run approves exactly
+	// the build the agent names, so this is the executable the runner just
+	// launched — asked of the runner that built it, never rebuilt from a cache
+	// layout here. StartResponse below stamps it and consumes it, so every
+	// start reports again: a restart that stayed silent would have the previous
+	// process's build approved for this one.
+	//
+	// Unreported is a refusal downstream, and the two cases that reach it are
+	// both correct. A container runtime's executable exists only inside the
+	// companion, so there is no host file for a consumer to digest. And a build
+	// that failed left nothing running to describe: on the hot-reload path above
+	// this returns a started response while waiting for an edit, and the service
+	// is genuinely not serving there.
+	if executable, reported := s.RunnerEnvironment.HostExecutable(); reported {
+		s.Wool.Trace("reporting started artifact", wool.FileField(executable))
+		s.Runtime.ReportStartedArtifact(&runtimev0.StartedArtifact{Executable: executable})
+	}
 	return s.Runtime.StartResponse()
 }
 
