@@ -27,7 +27,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker run --rm service-go-runtime:test go version | grep -F 'go1.27.2'
+          docker run --rm service-go-runtime:test go version | grep -F 'go1.27.3'
           docker run --rm service-go-runtime:test go env GOTOOLCHAIN | grep -Fx local
           docker run --rm service-go-runtime:test sh -c 'which git bash jq curl ps'
       - name: Scan runtime image
