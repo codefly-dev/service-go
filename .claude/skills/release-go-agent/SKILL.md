@@ -95,32 +95,15 @@ version in `go.mod`, **two independent pins move with it**:
 | `ghcr.io/goreleaser/goreleaser-cross` in `.github/workflows/releaser.yml` | building *this agent's* release binaries |
 | `ghcr.io/goreleaser/goreleaser-cross` in `pkg/builder/builder.go` | packaging *user services* at runtime |
 
-They are set independently and neither one's drift is caught by a build. The
+They are set independently and neither one's drift is caught by a build. Both
+are on `v1.27.3`, matching `go.mod`. Check the tag is published before moving
+them — never pin one that is not. The
 packaging suite covers the second:
 
 ```bash
 SERVICE_GO_PACKAGE_TESTS=required \
   go test -race -count=1 -timeout 15m ./pkg/builder -run TestPackageRealCGO
 ```
-
-#### Known gap: Go 1.27.2 has no goreleaser-cross image
-
-`go.mod` says `go 1.27.2`, but goreleaser-cross has published no 1.27.2 image:
-the newest 1.27 tags (ghcr.io and Docker Hub, checked 2026-10-13) are
-`v1.27.1-3` / `v1.27.1-3-v2.18.3`, whose build sets `GO_VERSION=1.27.1`. Both
-pins therefore stay on older images (`v1.27.1-1` in `releaser.yml`, `v1.27.0`
-in `builder.go`). Do not pin a tag that is not published.
-
-- **Release build:** the image sets no `GOTOOLCHAIN`, so Go's default `auto`
-  downloads go1.27.2 from the module proxy inside the container. v0.0.68 and
-  v0.0.69 shipped this way. It is not hermetic: a release fails if that
-  download is blocked.
-- **User-service packaging:** `Package` passes `GOTOOLCHAIN=<the version the
-  source selects>` (`resolvePackageGoToolchain`), so the image's Go is only a
-  bootstrap. A newer selection is still downloaded inside the container.
-
-When goreleaser-cross publishes a 1.27.2 image, move both pins to it, run the
-packaging suite above, and delete this section.
 
 Run it before tagging a release that moved the Go version. Dropping a target
 from `.goreleaser.yaml` to make a release pass removes a platform users install
