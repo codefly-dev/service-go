@@ -21,7 +21,20 @@
 FROM scratch AS gomodproxy
 
 # Build stage
-FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 AS builder
+#
+# The Go tag names the exact patch release, never a floating `1.27`. The
+# official golang image sets GOTOOLCHAIN=local, so the Go in the image is the
+# only Go that builds: a service whose go.mod requires a newer patch is refused
+# outright, and with the caller's prefetched modules as the only module source
+# there is no toolchain to download either. A floating minor tag hid which
+# patch the digest held, and the pin sat on 1.27.1 while the fleet's modules
+# moved to `go 1.27.3` — the tag now says which patch this is, so a stale one is
+# readable in the reference rather than only in a failed build.
+#
+# It is the same image pkg/runtime/runtime-image.json locks the Go runtime
+# container to, so a module builds the same way in a local container run and in
+# this recipe. Moving Go moves both; dockerfile_template_test.go holds that.
+FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine3.23@sha256:895e5feab11a4b3774d24ee3c9579028456b82ad37f42a9eb6f82adaf776a201 AS builder
 
 # git is the one package the pinned base lacks and GOPRIVATE module fetches
 # need; ca-certificates is already in it, so installing it again would add a
@@ -56,10 +69,11 @@ ARG GOPRIVATE
 #
 # `go version -m` records what actually produced the binary: the toolchain and
 # every module version. The base digest fixes the toolchain shipped in the
-# image, but GOTOOLCHAIN defaults to auto, so a service whose go.mod requires a
-# newer Go makes the go command fetch that toolchain at build time — an input
-# the digest cannot pin. Recording it keeps that substitution visible instead of
-# silent.
+# image and the official golang image sets GOTOOLCHAIN=local, so that toolchain
+# is the one that builds and no substitution is possible — a service whose
+# go.mod requires a newer patch fails here, naming both versions, rather than
+# quietly building with something the digest does not pin. Recording it keeps
+# the pair readable from the artifact.
 RUN --mount=type=bind,from=gomodproxy,target=/gomodproxy \
     --mount=type=secret,id=netrc,target=/root/.netrc,required=false \
     if [ -n "$(ls -A /gomodproxy)" ]; then export GOPROXY=file:///gomodproxy GOSUMDB=off GOPRIVATE= GONOPROXY= GONOSUMDB=; fi && \
