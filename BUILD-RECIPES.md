@@ -62,8 +62,16 @@ recorded:
 
 The records travel with the artifact, in `/etc/codefly/build-inputs/`:
 `apk-builder.txt` and `apk-runtime.txt` (each `apk info -v | sort`) and
-`go-build-info.txt` (`go version -m`, which also catches the one input the base
-digest cannot pin — `GOTOOLCHAIN` defaults to `auto`, so a service whose go.mod
-requires a newer Go makes the toolchain download one at build time).
+`go-build-info.txt` (`go version -m`, which records the toolchain and every
+module version that produced the binary — the official golang base sets
+`GOTOOLCHAIN=local`, so the Go in the image is the only Go that builds and a
+service whose go.mod requires a newer patch is refused outright rather than
+quietly building against something else).
 `apk-runtime.txt` is redundant with the digest by construction, which is the
 point: two builds that disagree on it are evidence the pin stopped holding.
+
+The apk-pin refresher reads the Docker daemon's first configured registry mirror
+and resolves the official Go base there with its unchanged pinned digest. With
+no configured mirror it uses the Dockerfile reference. The Go-version policy
+test checks the actual `go version | grep -F` smoke command in each workflow;
+a matching version in a comment does not satisfy it.

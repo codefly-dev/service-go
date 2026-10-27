@@ -1,26 +1,60 @@
 ---
 name: release-go-agent
-description: Cut a release of the codefly-dev/service-go agent binary, and satisfy the three contracts a release has to hold — the embedded agent.codefly.yaml version matching the tag, the CGO cross toolchain matching go.mod's Go version, and the archive name core's downloader resolves. Use when asked to release, tag, publish, or bump the version of this agent, when a published version installs but misbehaves and you suspect a version or archive mismatch, or when bumping the Go version in go.mod, which moves two independent goreleaser-cross pins.
+description: Release the codefly-dev/service-go agent binary with `codefly publish`, and satisfy the three contracts a release has to hold — the embedded agent.codefly.yaml version matching the tag, the CGO cross toolchain matching go.mod's Go version, and the archive name core's downloader resolves. Use when asked to release, tag, publish, or bump the version of this agent, when a published version installs but misbehaves and you suspect a version or archive mismatch, or when bumping the Go version in go.mod, which moves two independent goreleaser-cross pins.
 ---
 
 # Releasing the Go agent
 
-The release is made by pushing a tag. `.github/workflows/releaser.yml` fires on
-`v*`, runs `go test -v ./...`, then runs GoReleaser inside
-`ghcr.io/goreleaser/goreleaser-cross` and publishes with the `GH_PAT` secret.
+**`codefly publish patch` is the release.** It owns every step — the version
+bump, landing it on main, the tag, and the GitHub release — and the steps are
+not separable by hand. Run it from a clean, up-to-date clone of `main`:
 
-**Never build or upload artifacts by hand.** The cross image supplies the
+```bash
+codefly publish patch          # or minor / major / beta
+codefly publish patch --dry-run   # shows the bump and tag, changes nothing
+```
+
+**Never bump `agent.codefly.yaml` by hand, and never push the tag yourself.**
+The version and the tag are one fact, and `publish` is what keeps them one: a
+hand bump that is tagged separately is how they drift, and the drift is
+invisible until a user reports a version nobody can locate.
+
+**Never build or upload artifacts by hand** either. The cross image supplies the
 darwin and linux C compilers that CGO needs; a local `goreleaser release` or a
 hand-uploaded binary is not the same artifact and will not link tree-sitter.
+
+## What publish does here
+
+The bump lands through a **release pull request** rather than a push to main, so
+main can require its checks of everyone, admins included — a release commit
+pushed straight to main carries no check results. Tags are outside branch
+protection, so the tag push is direct.
+
+Pre-flight, any failure aborting with no side effects: working tree clean, on
+`main`, in sync with `origin/main`, and the tag does not already exist locally or
+remotely. Pushes are never `--force`.
+
+Because this repo's `agent.codefly.yaml` declares `release.owner: workflow` with
+`release.workflow: releaser.yml`, publish additionally runs release-grade agent
+CI against the bumped version and aborts untouched if it fails, then creates the
+GitHub release, uploads the loader archives and SBOMs, and verifies every archive
+resolves through the install URL resolver. `releaser.yml` builds every platform,
+so releasing needs no darwin/arm64 host.
+
+**If it stops between the PR merging and the tag push**, the bump is on main
+without a release. **Re-run `codefly publish patch`** — it recognises the
+untagged release commit and finishes it rather than bumping again.
 
 ## The walk
 
 1. Confirm `main` is green and the core pin in `go.mod` is the one you intend to
-   ship. Agent releases are usually paired with a core bump.
-2. Set `version:` in `agent.codefly.yaml` to the new version **without** the
-   leading `v`.
-3. Commit that alone, as `release: vX.Y.Z` — a release commit touches one file.
-4. Tag that exact commit `vX.Y.Z` and push the tag.
+   ship. Agent releases are usually paired with a core bump; publish does not
+   check that for you.
+2. From a clean clone of `main`, `codefly publish patch`.
+3. Check the `releaser.yml` run and that the release carries all four archives.
+
+`v0.0.71` was released this way: release PR #147, tag `v0.0.71` at commit
+`d24bb6e`, [releaser run 39076588197](https://github.com/codefly-dev/service-go/actions/runs/39076588197).
 
 ## Three contracts a release has to hold
 
@@ -29,12 +63,17 @@ hand-uploaded binary is not the same artifact and will not link tree-sitter.
 `agent.codefly.yaml` is embedded into the binary (`main.go`) and is what the
 agent reports about itself. Tag `v0.0.51` ships `version: 0.0.51`.
 
-**Nothing in CI checks this.** A mismatch releases successfully and is only
-visible later as an agent that reports a version nobody can locate. Verify
-before tagging:
+**Nothing in CI checks this** — which is why `codefly publish` owns both halves
+and you do not. It bumps the manifest and tags the commit carrying that bump, so
+the pair cannot drift. A hand bump, a hand tag, or re-tagging an existing
+version all reintroduce exactly the mismatch nothing would catch: it releases
+successfully and surfaces later as an agent reporting a version nobody can
+locate.
+
+To confirm after a release:
 
 ```bash
-grep '^version:' agent.codefly.yaml   # must match the tag, minus the v
+git show v0.0.71:agent.codefly.yaml | grep '^version:'   # 0.0.71
 ```
 
 ### The archive name is a contract with core's downloader
@@ -56,32 +95,24 @@ version in `go.mod`, **two independent pins move with it**:
 | `ghcr.io/goreleaser/goreleaser-cross` in `.github/workflows/releaser.yml` | building *this agent's* release binaries |
 | `ghcr.io/goreleaser/goreleaser-cross` in `pkg/builder/builder.go` | packaging *user services* at runtime |
 
-They are set independently and neither one's drift is caught by a build. The
-packaging suite covers the second:
+They are set independently and neither one's drift is caught by a build. Both
+are on `v1.27.3`, matching `go.mod`. Check the tag is published before moving
+them — never pin one that is not.
+
+The `builder.go` pin is only a bootstrap for user-service packaging, which is
+why its drift is less sharp than the release pin's: `Package` passes
+`GOTOOLCHAIN=<the version the source selects>`
+(`resolvePackageGoToolchain`, `pkg/builder/package_source.go`, called from
+`builder.go`), so a service whose go.mod selects a newer Go still has that
+toolchain downloaded inside the container. The image's own Go only has to be
+new enough to run the go command that does the selecting.
+
+The packaging suite covers the second:
 
 ```bash
 SERVICE_GO_PACKAGE_TESTS=required \
   go test -race -count=1 -timeout 15m ./pkg/builder -run TestPackageRealCGO
 ```
-
-#### Known gap: Go 1.27.2 has no goreleaser-cross image
-
-`go.mod` says `go 1.27.2`, but goreleaser-cross has published no 1.27.2 image:
-the newest 1.27 tags (ghcr.io and Docker Hub, checked 2026-10-13) are
-`v1.27.1-3` / `v1.27.1-3-v2.18.3`, whose build sets `GO_VERSION=1.27.1`. Both
-pins therefore stay on older images (`v1.27.1-1` in `releaser.yml`, `v1.27.0`
-in `builder.go`). Do not pin a tag that is not published.
-
-- **Release build:** the image sets no `GOTOOLCHAIN`, so Go's default `auto`
-  downloads go1.27.2 from the module proxy inside the container. v0.0.68 and
-  v0.0.69 shipped this way. It is not hermetic: a release fails if that
-  download is blocked.
-- **User-service packaging:** `Package` passes `GOTOOLCHAIN=<the version the
-  source selects>` (`resolvePackageGoToolchain`), so the image's Go is only a
-  bootstrap. A newer selection is still downloaded inside the container.
-
-When goreleaser-cross publishes a 1.27.2 image, move both pins to it, run the
-packaging suite above, and delete this section.
 
 Run it before tagging a release that moved the Go version. Dropping a target
 from `.goreleaser.yaml` to make a release pass removes a platform users install
@@ -89,7 +120,14 @@ on; fix the toolchain instead.
 
 ## After the tag
 
-Check the workflow run and that the release carries all four archives. If the
-job failed after publishing a partial release, delete the release and the tag
-and cut the next patch — do not re-tag the same version, since consumers may
-already have resolved it.
+Check the `releaser.yml` run and that the release carries all four archives
+(`darwin/{amd64,arm64}`, `linux/{amd64,arm64}`) plus checksums and SBOMs:
+
+```bash
+gh release view vX.Y.Z --repo codefly-dev/service-go --json assets -q '.assets[].name'
+```
+
+If the job failed after publishing a partial release, delete the release and the
+tag and cut the next patch — do not re-tag the same version, since consumers may
+already have resolved it. That is a different situation from publish stopping
+before the tag, which is finished by re-running publish.

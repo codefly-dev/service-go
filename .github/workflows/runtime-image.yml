@@ -67,4 +67,4 @@ jobs:
           docker logout ghcr.io
           ref=$(jq -er '.name + "@" + .digest' "$LOCK")
           docker buildx imagetools inspect "$ref"
-          docker run --rm "$ref" go version | grep -F 'go1.27.2'
+          docker run --rm "$ref" go version | grep -F 'go1.27.3'

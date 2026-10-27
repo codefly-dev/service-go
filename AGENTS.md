@@ -68,7 +68,7 @@ it was seen rather than where it lives.
 ## Build and test
 
 Derived from `.github/workflows/ci.yml`. The Go version comes from `go.mod`
-(1.27.2) — CI reads it with `go-version-file`, so it is never pinned twice.
+(1.27.3) — CI reads it with `go-version-file`, so it is never pinned twice.
 
 ```bash
 go build ./...          # CI: Build
@@ -111,38 +111,14 @@ rather than re-deriving from `go list`.
 
 ## Rules that bite
 
-- **`base/` is a lock, not a sample, and the templates are GENERATED from it.**
-  `templates/factory/code/**` must render byte-for-byte to `base/code/**`. The
-  fix for a wrong template is to edit `base/code`, then regenerate:
-
-  ```bash
-  codefly agent generate --service .      # driven by base/service.generation.codefly.yaml
-  ```
-
-  Never hand-edit a `.tmpl`: it is the output, and the next regeneration
-  silently discards the edit. `TestFactoryTemplatesRenderToBase` is what makes
-  the two impossible to diverge quietly, and Dependabot does not watch
-  `base/code`. Remove build artefacts from `base/code` before regenerating —
-  the generator templatizes whatever it finds, a compiled binary included.
-- **The generated service takes its address from the COMPOSITION.** It resolves
-  with `codefly.For(ctx).API(standards.HTTP).ResolveNetworkInstance()` and
-  refuses to start when that fails. A hardcoded port is wrong the moment two
-  services want it and ignores what the composition assigned, so the service
-  listens where nothing is looking. Initialize the SDK first, then bind the
-  resolved host and port (including native loopback). The real scaffold process
-  test exercises that address and refusal when no carrier is delivered. This agent shipped `Addr: ":8080"` and
-  nothing caught it, because no test ran the service it generates — which is
-  also why `NetworkInstance()` is not used here: it returns nil on failure, so
-  reading `.Port` off it panics with nothing to read and the only symptom is a
-  port that never accepts.
-
-- **Runtime reports the executable it actually started.** After each successful
-  process start, including hot reload, it reports Core's `Executable()` through
-  `runtime-started-artifact/v1`. A failed compilation reports no previous
-  artifact. Hot-reload compile failures retain the build diagnostic in the log
-  while waiting for an edit. The CLI uses this report for native build identity; source paths
-  and agent cache layouts are never an alternative. `Runtime.Load` refuses a
-  declared endpoint whose contract cannot be loaded instead of omitting it.
+- **Factory templates are generated from `base/`, a lock.** Edit the base,
+  remove build artifacts, then run `codefly agent generate --service .`.
+  Never hand-edit `.tmpl` output. `TestFactoryTemplatesRenderToBase` guards it.
+- **Generated services resolve their composition-assigned HTTP address.**
+  Initialize the SDK, then call `ResolveNetworkInstance()` and bind its host
+  and port, including native loopback. Refuse missing carriers and malformed
+  endpoint contracts. The factory declares the private HTTP endpoint it serves;
+  the real scaffold process test proves the allocated address and refusal.
 
 - **`Builder.Build` emits a recipe; it does not build an image.** It renders the
   Dockerfile and copies the source into `<output>/code`, and the CLI runs
@@ -151,17 +127,28 @@ rather than re-deriving from `go list`.
   (`os.SameFile`), not by name — a source package named `builder` must still be
   copied.
 - **`agent.codefly.yaml`'s `version` must equal the release tag** (`v0.0.51` →
-  `0.0.51`). It is embedded in the binary and nothing in CI checks it. See
-  `.claude/skills/release-go-agent/`.
+  `0.0.51`). It is embedded in the binary and nothing in CI checks it, which is
+  why `codefly publish` owns both halves: it bumps the manifest and tags the
+  commit carrying that bump. Never edit the version by hand or push the tag
+  yourself. See `.claude/skills/release-go-agent/`.
 - **Releases require CGO** — core's source inspection uses real tree-sitter
   grammars, so every target is built through the `goreleaser-cross` image, whose
-  Go version must match `go.mod`. **Known gap:** no image ships Go 1.27.2 yet, so
-  releases build in `v1.27.1-1` and Go downloads 1.27.2 — see
+  Go version must match `go.mod`. A Go bump moves **two** independent pins with
+  it — `releaser.yml` for this agent's own release, `pkg/builder/builder.go` for
+  packaging user services — and neither drift is caught by a build; see
   `.claude/skills/release-go-agent/`. Disabling CGO to make a build pass ships an
   agent whose parser cannot work.
 - **The archive name is a contract with core's downloader**
   (`service-{name}_{version}_{os}_{arch}.tar.gz`). Renaming it breaks install,
   not CI.
+- **A start must say what it ran.** `Runtime.Start` reports the executable it
+  built and launched (`runtime-started-artifact/v1`), and `pkg/service`
+  advertises the capability because it does. A native `codefly run` approves
+  exactly that build and refuses a workload whose agent reports nothing, so a
+  specialization overriding `Start` must report in its own — the breakage is a
+  delivery refusal naming the agent, not a failure inside it. The path comes
+  from `GoRunnerEnvironment.HostExecutable`; never rebuild it from the cache
+  layout. See the `pkg/runtime` package doc.
 - **`Settings` is embedded `yaml:",inline"` by specializations.** Changing its
   shape breaks their YAML fixtures; `pkg/service/service_test.go` guards this.
 - **Root policy tests enforce repo rules**, not behaviour: every workflow `uses:`
@@ -176,8 +163,8 @@ carried here:
 
 - `verify-changes` — the full local gate walk derived from `ci.yml`, including
   the two suites that skip silently.
-- `release-go-agent` — cutting a version, and the three contracts a release has
-  to satisfy.
+- `release-go-agent` — releasing with `codefly publish`, and the three contracts
+  a release has to satisfy.
 
 ## Workflow
 
