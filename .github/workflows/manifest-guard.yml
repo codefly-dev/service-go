@@ -5,4 +5,4 @@ on:
     branches: [ main ]
 jobs:
   manifest-guard:
-    uses: codefly-dev/.github/.github/workflows/plugin-manifest-guard.yml@78f7890b3e55f420a7d16b2b3e3e655c25e16cc8 # main
+    uses: codefly-dev/.github/.github/workflows/plugin-manifest-guard.yml@26878febb40fd24fd130ed6b7a4bde00710b716a # generated Go checksum metadata (#11)
