@@ -97,8 +97,17 @@ version in `go.mod`, **two independent pins move with it**:
 
 They are set independently and neither one's drift is caught by a build. Both
 are on `v1.27.3`, matching `go.mod`. Check the tag is published before moving
-them — never pin one that is not. The
-packaging suite covers the second:
+them — never pin one that is not.
+
+The `builder.go` pin is only a bootstrap for user-service packaging, which is
+why its drift is less sharp than the release pin's: `Package` passes
+`GOTOOLCHAIN=<the version the source selects>`
+(`resolvePackageGoToolchain`, `pkg/builder/package_source.go`, called from
+`builder.go`), so a service whose go.mod selects a newer Go still has that
+toolchain downloaded inside the container. The image's own Go only has to be
+new enough to run the go command that does the selecting.
+
+The packaging suite covers the second:
 
 ```bash
 SERVICE_GO_PACKAGE_TESTS=required \

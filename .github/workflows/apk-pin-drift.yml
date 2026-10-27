@@ -1,0 +1,30 @@
+# The runtime image pins each Alpine package to an exact -rN, because
+# runtime-image.json locks that image by digest and ci.yml asserts the digest
+# reproduces: the package set is part of the bytes being asserted. Alpine's
+# index serves only the current -rN, so a patch upstream makes a pin stop
+# resolving and the image can no longer be built at all.
+#
+# Nothing was watching for that. Dependabot's docker ecosystem points only at
+# /templates/builder and its updater rewrites `FROM …@sha256` references, not
+# apk pins — so correct pins went two months stale and the first signal was an
+# unrelated pull request going red.
+#
+# This runs weekly rather than on pull requests on purpose. On a pull request
+# the `runtime-image` build already fails and names the package that moved, so
+# a check here would only duplicate it; what was missing is noticing BEFORE
+# someone else's change is the thing that breaks. A failure here is a
+# notification, not a merge gate.
+name: apk-pin-drift
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: The runtime image's apk pins still resolve
+        run: .github/scripts/refresh-apk-pins.sh --check

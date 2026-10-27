@@ -8,8 +8,6 @@ import (
 	"testing"
 
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
-
-	goruntime "github.com/codefly-dev/service-go/pkg/runtime"
 )
 
 // netrcMount is the BuildKit mount the CLI builds against: the secret is named
@@ -204,28 +202,37 @@ func TestBuilderStagePackagesAreRecordedAsEvidence(t *testing.T) {
 
 // builderGoBase matches the builder stage's Go base: the exact tag and the
 // image-index digest it is pinned to, as one reference.
-var builderGoBase = regexp.MustCompile(`(?m)^FROM\s+(?:--platform=\S+\s+)?golang:(\S+)@sha256:([0-9a-f]{64})\b`)
+var builderGoBase = regexp.MustCompile(`(?m)^FROM\s+(?:--platform=\S+\s+)?(golang:(\S+)@sha256:[0-9a-f]{64})\b`)
 
-// TestBuilderStageBuildsWithTheRuntimeImageGoRelease holds the one Go release
-// this repo builds a service with, in both places it is written down.
+// runtimeImageGoBase matches the Go base the runtime image is built from, as
+// pkg/runtime/runtime-image/Dockerfile declares it.
+var runtimeImageGoBase = regexp.MustCompile(`(?m)^ARG GO_IMAGE=(\S+)`)
+
+// TestBuilderStageBuildsWithTheRuntimeImageGoBase holds the one Go base this
+// repo builds a service with, in both places it is written down.
 //
 // The official golang image sets GOTOOLCHAIN=local, and the declared module
 // download makes the caller's prefetched modules the only module source, so
 // the Go in the builder base is the only Go available: a service whose go.mod
 // requires a newer patch is refused with "go.mod requires go >= x.y.z
 // (running x.y.z-1; GOTOOLCHAIN=local)" and the image never builds. That makes
-// the base's patch release a contract with every service the agent builds, not
-// an implementation detail.
+// the base a contract with every service the agent builds, not an
+// implementation detail.
 //
-// Two things are therefore required of it. The tag must name the patch, so
-// which Go a digest holds is readable without pulling it — a floating
-// `golang:1.27-alpine` pin sat on 1.27.1 for weeks while the fleet's modules
-// required `go 1.27.3`, and the drift was invisible until a hosted render
-// failed. And it must be the same release pkg/runtime/runtime-image.json locks
-// the runtime container to, because a module that builds under `codefly run`
-// has to build in the deployed recipe too; a Dependabot bump that moves one
-// reds here until the other follows, which is the point.
-func TestBuilderStageBuildsWithTheRuntimeImageGoRelease(t *testing.T) {
+// Two things are required of it. The tag must name the patch, so which Go a
+// digest holds is readable without pulling it — a floating
+// `golang:1.27-alpine` pin sat on 1.27.1 while the fleet's modules required
+// `go 1.27.3`, and the drift was invisible until a hosted render failed. And
+// the reference must be the SAME reference pkg/runtime/runtime-image/Dockerfile
+// builds the runtime container from, because a module that builds under
+// `codefly run` has to build in the deployed recipe too.
+//
+// The whole reference is compared, not the Go patch alone. Tag and digest are
+// one fact here: two references agreeing on `1.27.3` while differing on the
+// Alpine variant or on the bytes behind the digest are two different images,
+// and a guard that held only the patch would let them drift apart in every
+// other field — which is how this pin went stale in the first place.
+func TestBuilderStageBuildsWithTheRuntimeImageGoBase(t *testing.T) {
 	rendered := renderedRecipe(t)
 	builderStage, _, found := strings.Cut(rendered, "# Final stage")
 	if !found {
@@ -235,18 +242,91 @@ func TestBuilderStageBuildsWithTheRuntimeImageGoRelease(t *testing.T) {
 	if pin == nil {
 		t.Fatalf("builder stage pins no golang base by tag and digest:\n%s", builderStage)
 	}
-	release, variant, qualified := strings.Cut(pin[1], "-")
+	reference, tag := pin[1], pin[2]
+
+	release, _, qualified := strings.Cut(tag, "-")
 	if !qualified {
-		t.Fatalf("golang tag %q names no base variant", pin[1])
+		t.Fatalf("golang tag %q names no base variant", tag)
 	}
 	if strings.Count(release, ".") != 2 {
 		t.Errorf("golang tag %q names Go %q, a floating minor: the tag must name the patch release, "+
-			"or which Go the digest holds is readable only from a failed build", pin[1], release)
+			"or which Go the digest holds is readable only from a failed build", tag, release)
 	}
-	want, _, _ := strings.Cut(strings.TrimPrefix(goruntime.RuntimeImage.Tag, "go"), "-")
-	if release != want {
-		t.Errorf("builder stage builds with Go %s (golang:%s-%s) but the runtime image lock is Go %s (%s): "+
-			"a service must build the same way in a container run and in the recipe, so both move together",
-			release, release, variant, want, goruntime.RuntimeImage.Tag)
+
+	// The runtime image's own Dockerfile, not runtime-image.json: the lock
+	// addresses codefly's derived image (ghcr.io/codefly-dev/service-go-runtime),
+	// one level up. The Go base both files must agree on is this ARG.
+	const runtimeDockerfile = "pkg/runtime/runtime-image/Dockerfile"
+	content, err := os.ReadFile(filepath.FromSlash(runtimeDockerfile))
+	if err != nil {
+		t.Fatalf("read %s: %v", runtimeDockerfile, err)
 	}
+	declared := runtimeImageGoBase.FindStringSubmatch(string(content))
+	if declared == nil {
+		t.Fatalf("%s declares no ARG GO_IMAGE", runtimeDockerfile)
+	}
+	if reference != declared[1] {
+		t.Errorf("builder stage builds from %s but %s builds from %s: a service must build the same way "+
+			"in a container run and in the recipe, so both move together",
+			reference, runtimeDockerfile, declared[1])
+	}
+}
+
+// TestTheGoReleaseIsOneFactAcrossTheRepo closes the axis the reference
+// comparison above does not reach. Four places name the Go this repo builds
+// with, and nothing made them one fact: `go.mod`'s directive (which selects
+// the toolchain the agent itself is built by, and which both goreleaser-cross
+// pins follow), the builder base and the runtime image's `ARG GO_IMAGE`
+// (compared to each other above), and two smoke assertions that grep the
+// runtime container's `go version` for a literal.
+//
+// They are aligned today, at 1.27.3, which is the cheapest moment to assert
+// it. Without this, bumping `go.mod` alone — the normal way a Go bump starts,
+// and how GO-2026-6809 was fixed — moves the two cross pins and silently
+// leaves the images and both literals behind, which reads as fixed and is not.
+func TestTheGoReleaseIsOneFactAcrossTheRepo(t *testing.T) {
+	directive := goDirective(t)
+
+	rendered := renderedRecipe(t)
+	builderStage, _, _ := strings.Cut(rendered, "# Final stage")
+	pin := builderGoBase.FindStringSubmatch(builderStage)
+	if pin == nil {
+		t.Fatalf("builder stage pins no golang base by tag and digest:\n%s", builderStage)
+	}
+	if release, _, _ := strings.Cut(pin[2], "-"); release != directive {
+		t.Errorf("go.mod requires Go %s but the builder base is golang:%s: a service the agent builds "+
+			"must not be compiled by an older Go than this repo itself requires", directive, pin[2])
+	}
+
+	// The smoke assertions prove the published runtime container really runs
+	// the Go it claims. A literal that drifts stops proving anything while
+	// still passing, because it greps for what the image happens to be.
+	for _, workflow := range []string{"ci.yml", "runtime-image.yml"} {
+		path := filepath.Join(".github", "workflows", workflow)
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		want := "go" + directive
+		if !strings.Contains(string(content), want) {
+			t.Errorf("%s asserts no %q: its go version smoke check names a different release than go.mod requires",
+				path, want)
+		}
+	}
+}
+
+// goDirective is the Go release this module requires, from the one place that
+// declares it. CI reads the same file with go-version-file, so the directive is
+// never written down twice.
+func goDirective(t *testing.T) string {
+	t.Helper()
+	content, err := os.ReadFile("go.mod")
+	if err != nil {
+		t.Fatalf("read go.mod: %v", err)
+	}
+	directive := regexp.MustCompile(`(?m)^go (\S+)$`).FindStringSubmatch(string(content))
+	if directive == nil {
+		t.Fatal("go.mod declares no go directive")
+	}
+	return directive[1]
 }

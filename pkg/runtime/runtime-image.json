@@ -1,7 +1,7 @@
 {
   "name": "ghcr.io/codefly-dev/service-go-runtime",
   "tag": "go1.27.3-alpine3.23",
-  "digest": "sha256:fe159add88c1bef054c739b58b1d95176e66e280919e327496613fed1a6cf6ff",
+  "digest": "sha256:2fda233141b24f86fd9839c2f93a132c3c699676c035843a47764553819e051d",
   "platforms": [
     "linux/amd64",
     "linux/arm64"
