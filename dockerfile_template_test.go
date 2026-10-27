@@ -3,10 +3,13 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+
+	goruntime "github.com/codefly-dev/service-go/pkg/runtime"
 )
 
 // netrcMount is the BuildKit mount the CLI builds against: the secret is named
@@ -196,5 +199,54 @@ func TestBuilderStagePackagesAreRecordedAsEvidence(t *testing.T) {
 		if !strings.Contains(rendered, record) {
 			t.Errorf("recipe records no %s:\n%s", record, rendered)
 		}
+	}
+}
+
+// builderGoBase matches the builder stage's Go base: the exact tag and the
+// image-index digest it is pinned to, as one reference.
+var builderGoBase = regexp.MustCompile(`(?m)^FROM\s+(?:--platform=\S+\s+)?golang:(\S+)@sha256:([0-9a-f]{64})\b`)
+
+// TestBuilderStageBuildsWithTheRuntimeImageGoRelease holds the one Go release
+// this repo builds a service with, in both places it is written down.
+//
+// The official golang image sets GOTOOLCHAIN=local, and the declared module
+// download makes the caller's prefetched modules the only module source, so
+// the Go in the builder base is the only Go available: a service whose go.mod
+// requires a newer patch is refused with "go.mod requires go >= x.y.z
+// (running x.y.z-1; GOTOOLCHAIN=local)" and the image never builds. That makes
+// the base's patch release a contract with every service the agent builds, not
+// an implementation detail.
+//
+// Two things are therefore required of it. The tag must name the patch, so
+// which Go a digest holds is readable without pulling it — a floating
+// `golang:1.27-alpine` pin sat on 1.27.1 for weeks while the fleet's modules
+// required `go 1.27.3`, and the drift was invisible until a hosted render
+// failed. And it must be the same release pkg/runtime/runtime-image.json locks
+// the runtime container to, because a module that builds under `codefly run`
+// has to build in the deployed recipe too; a Dependabot bump that moves one
+// reds here until the other follows, which is the point.
+func TestBuilderStageBuildsWithTheRuntimeImageGoRelease(t *testing.T) {
+	rendered := renderedRecipe(t)
+	builderStage, _, found := strings.Cut(rendered, "# Final stage")
+	if !found {
+		t.Fatalf("runtime stage marker is missing:\n%s", rendered)
+	}
+	pin := builderGoBase.FindStringSubmatch(builderStage)
+	if pin == nil {
+		t.Fatalf("builder stage pins no golang base by tag and digest:\n%s", builderStage)
+	}
+	release, variant, qualified := strings.Cut(pin[1], "-")
+	if !qualified {
+		t.Fatalf("golang tag %q names no base variant", pin[1])
+	}
+	if strings.Count(release, ".") != 2 {
+		t.Errorf("golang tag %q names Go %q, a floating minor: the tag must name the patch release, "+
+			"or which Go the digest holds is readable only from a failed build", pin[1], release)
+	}
+	want, _, _ := strings.Cut(strings.TrimPrefix(goruntime.RuntimeImage.Tag, "go"), "-")
+	if release != want {
+		t.Errorf("builder stage builds with Go %s (golang:%s-%s) but the runtime image lock is Go %s (%s): "+
+			"a service must build the same way in a container run and in the recipe, so both move together",
+			release, release, variant, want, goruntime.RuntimeImage.Tag)
 	}
 }
