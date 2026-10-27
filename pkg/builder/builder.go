@@ -26,6 +26,7 @@ import (
 	"github.com/codefly-dev/core/agents/services/audit"
 	"github.com/codefly-dev/core/agents/services/sbom"
 	"github.com/codefly-dev/core/builders"
+	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
 	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 	"github.com/codefly-dev/core/resources"
@@ -33,6 +34,7 @@ import (
 	"github.com/codefly-dev/core/runners/dockerrun"
 	golanghelpers "github.com/codefly-dev/core/runners/golang"
 	"github.com/codefly-dev/core/shared"
+	"github.com/codefly-dev/core/standards"
 	"github.com/codefly-dev/core/templates"
 	"github.com/codefly-dev/core/wool"
 
@@ -100,7 +102,11 @@ func (s *Builder) Load(ctx context.Context, req *builderv0.LoadRequest) (*builde
 		return s.Builder.LoadResponse()
 	}
 
-	s.Endpoints, _ = s.Base.Service.LoadEndpoints(ctx)
+	var err error
+	s.Endpoints, err = s.Base.Service.LoadEndpoints(ctx)
+	if err != nil {
+		return s.Builder.LoadErrorf(err, "loading declared endpoints")
+	}
 	return s.Builder.LoadResponse()
 }
 
@@ -713,6 +719,13 @@ func (s *Builder) Create(ctx context.Context, req *builderv0.CreateRequest) (*bu
 	if err := s.Templates(ctx, create, services.WithFactory(s.cfg.FactoryFS).WithPathSelect(ignore)); err != nil {
 		return s.Builder.CreateError(err)
 	}
+	// The factory emits an HTTP server; declare the endpoint the host must
+	// allocate before that generated server can resolve its listening address.
+	endpoint, err := resources.NewAPI(ctx, s.Base.BaseEndpoint(standards.HTTP), resources.ToHTTPAPI(&basev0.HttpAPI{}))
+	if err != nil {
+		return s.Builder.CreateError(err)
+	}
+	s.Endpoints = []*basev0.Endpoint{endpoint}
 	return s.Builder.CreateResponse(ctx, s.Settings)
 }
 

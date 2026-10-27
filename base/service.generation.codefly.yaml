@@ -1,0 +1,7 @@
+replacements:
+  - from: codefly-base
+    to: "{{ .Service.Name.DNSCase }}"
+ignores:
+  - service.generation.codefly.yaml
+  - go.work
+  - go.work.sum

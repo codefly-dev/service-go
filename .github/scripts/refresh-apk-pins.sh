@@ -46,6 +46,19 @@ command -v docker >/dev/null || { echo "docker is required to resolve package ve
 base="$(sed -n 's/^ARG GO_IMAGE=\(.*\)$/\1/p' "$DOCKERFILE" | head -1)"
 [[ -n "$base" ]] || { echo "$DOCKERFILE declares no ARG GO_IMAGE" >&2; exit 2; }
 
+# Try the configured HTTPS mirror explicitly at the unchanged pinned digest.
+# Direct registry references cannot express an HTTP mirror's transport policy,
+# so leave those to Docker. If the direct pull fails, Docker also retains its
+# normal ordered mirror/origin fallback through the original reference.
+mirror="$(docker info --format '{{range .RegistryConfig.Mirrors}}{{println .}}{{end}}' | head -1)"
+if [[ "$mirror" == https://* && "$base" == golang:*@sha256:* ]]; then
+  mirror="${mirror#https://}"
+  mirrored="${mirror%/}/library/$base"
+  if docker pull "$mirrored" >&2; then
+    base="$mirrored"
+  fi
+fi
+
 # Every `name=version` token inside the apk add instruction. A RUN spans
 # continuation lines, so the instruction is rejoined before it is read. perl
 # does the joining because BSD sed does not understand \f and `mapfile` is

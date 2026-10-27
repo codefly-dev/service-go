@@ -308,7 +308,8 @@ func TestTheGoReleaseIsOneFactAcrossTheRepo(t *testing.T) {
 			t.Fatalf("read %s: %v", path, err)
 		}
 		want := "go" + directive
-		if !strings.Contains(string(content), want) {
+		assertion := regexp.MustCompile(`(?m)^[\t ]*docker run[^\n]+ go version[\t ]*\|[\t ]*grep -F ['"]` + regexp.QuoteMeta(want) + `['"][\t ]*$`)
+		if !assertion.Match(content) {
 			t.Errorf("%s asserts no %q: its go version smoke check names a different release than go.mod requires",
 				path, want)
 		}
