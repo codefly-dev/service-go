@@ -70,8 +70,9 @@ quietly building against something else).
 `apk-runtime.txt` is redundant with the digest by construction, which is the
 point: two builds that disagree on it are evidence the pin stopped holding.
 
-The apk-pin refresher reads the Docker daemon's first configured registry mirror
-and resolves the official Go base there with its unchanged pinned digest. With
-no configured mirror it uses the Dockerfile reference. The Go-version policy
+The apk-pin refresher tries the Docker daemon's first configured HTTPS mirror
+with the official Go base's unchanged pinned digest. HTTP mirrors and failed
+direct pulls retain Docker's normal mirror/origin resolution through the original
+Dockerfile reference. The Go-version policy
 test checks the actual `go version | grep -F` smoke command in each workflow;
 a matching version in a comment does not satisfy it.

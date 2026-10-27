@@ -116,8 +116,9 @@ rather than re-deriving from `go list`.
   Never hand-edit `.tmpl` output. `TestFactoryTemplatesRenderToBase` guards it.
 - **Generated services resolve their composition-assigned HTTP address.**
   Initialize the SDK, then call `ResolveNetworkInstance()` and bind its host
-  and port, including native loopback. Refuse missing carriers and malformed
-  endpoint contracts. The factory declares the private HTTP endpoint it serves;
+  and port, including native loopback. Refuse when the SDK has no supported
+  address source, and reject malformed endpoint contracts. Local workspace
+  fallback remains SDK-owned; absent carriers fail without that local source. The factory declares the private HTTP endpoint it serves;
   the real scaffold process test proves the allocated address and refusal.
 
 - **`Builder.Build` emits a recipe; it does not build an image.** It renders the

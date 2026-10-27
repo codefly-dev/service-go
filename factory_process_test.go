@@ -95,7 +95,8 @@ func TestGeneratedServiceRunsAtResolvedAddress(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	// No allocated carrier is a refusal, not a hardcoded/default listener.
+	// With no composition workspace, an absent carrier must refuse startup.
+	// The SDK owns the separate local-workspace fallback.
 	missing := exec.CommandContext(ctx, binary)
 	missing.Dir = run.Dir
 	missing.Env = environment
