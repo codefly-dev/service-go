@@ -4,6 +4,15 @@
 // Load (additional endpoint wiring) and Init (REST/gRPC env vars).
 // Test, Lint, Build are reused as-is.
 //
+// Native ownership is implemented by the pinned Core runner. Core v0.19.9
+// writes authenticated-v2 process-group registrations, retaining the launching
+// workspace even when the child environment cannot be inspected. Start and
+// Stop use that runner directly; this agent owns no parallel registry or
+// recovery matcher. Explicit orphan recovery belongs to Core and its CLI
+// consumer, which authenticate the registration and the absent original owner
+// before signaling. Upgrading this dependency affects newly built agents only;
+// it does not upgrade the writer inside an already running agent.
+//
 // # What a start reports
 //
 // Start names the program it ran, through core's runtime-started-artifact/v1:
