@@ -14,12 +14,37 @@ import (
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 )
 
+// hostGoEnvironment is the environment every host-side `go` invocation of a
+// package build runs with: the agent's own, plus GOWORK settled by goWorkMode.
+func hostGoEnvironment(extra ...string) []string {
+	return append(append(os.Environ(), "GOWORK="+goWorkMode()), extra...)
+}
+
+// goWorkMode is the module-graph selection a package build honours. The CLI
+// prepares it: for a local build it binds the go.work it detected for the
+// source checkout, so the agent links the owner checkouts a developer composed
+// (codefly-dev/cli cmd/agents/build.go, compileAgent) and an unreleased core
+// can be proven without a publication; for standalone CI and release packaging
+// it sets GOWORK=off, so the graph is exactly go.mod/go.sum. When nothing was
+// prepared — the agent invoked outside the CLI — off is the only graph that is
+// reproducible, and the one the cross build below always uses.
+//
+// Before this, every host-side invocation forced GOWORK=off after inheriting
+// the environment, which silently discarded the CLI's selection: a local build
+// against a go.work pointing at a core checkout still linked the pinned release.
+func goWorkMode() string {
+	if mode := strings.TrimSpace(os.Getenv("GOWORK")); mode != "" {
+		return mode
+	}
+	return "off"
+}
+
 // Use Go's module/toolchain selection on the source, just as the native build
 // does. The cross image supplies C compilers, not the module's Go version.
 func resolvePackageGoToolchain(ctx context.Context, source string) (string, error) {
 	command := exec.CommandContext(ctx, "go", "env", "GOVERSION")
 	command.Dir = source
-	command.Env = append(os.Environ(), "GOWORK=off")
+	command.Env = hostGoEnvironment()
 	var stderr bytes.Buffer
 	command.Stderr = &stderr
 	output, err := command.Output()
@@ -38,7 +63,7 @@ func resolvePackageGoToolchain(ctx context.Context, source string) (string, erro
 func resolvePackageSource(ctx context.Context, source string, target *builderv0.PackageTarget) (root, entry string, err error) {
 	command := exec.CommandContext(ctx, "go", "list", "-mod=readonly", "-json", ".")
 	command.Dir = source
-	command.Env = append(os.Environ(), "GOWORK=off", "CGO_ENABLED=1", "GOOS="+target.GetOs(), "GOARCH="+target.GetArchitecture())
+	command.Env = hostGoEnvironment("CGO_ENABLED=1", "GOOS="+target.GetOs(), "GOARCH="+target.GetArchitecture())
 	var stderr bytes.Buffer
 	command.Stderr = &stderr
 	payload, err := command.Output()
