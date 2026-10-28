@@ -508,11 +508,10 @@ func packageGoBinary(ctx context.Context, source, destination string, target *bu
 func packageNativeGoBinary(ctx context.Context, source, entry, destination string, target *builderv0.PackageTarget) error {
 	command := exec.CommandContext(ctx, "go", "build", "-trimpath", "-o", destination, entry)
 	command.Dir = source
-	command.Env = append(os.Environ(),
+	command.Env = hostGoEnvironment(
 		"CGO_ENABLED=1",
 		"GOOS="+target.GetOs(),
 		"GOARCH="+target.GetArchitecture(),
-		"GOWORK=off",
 	)
 	output, err := command.CombinedOutput()
 	if err != nil {
@@ -608,6 +607,9 @@ func packageCrossGoBinaryWithRunner(ctx context.Context, source, entry, destinat
 		resources.Env("GOARCH", target.GetArchitecture()),
 		resources.Env("CC", toolchain.cc),
 		resources.Env("CXX", toolchain.cxx),
+		// Off even when the CLI prepared a go.work: the companion mounts only
+		// the source and the destination, so a `use` path on the host does not
+		// exist in the container. A cross build is always the pinned graph.
 		resources.Env("GOWORK", "off"),
 		resources.Env("GOTOOLCHAIN", goToolchain),
 		resources.Env("HOME", "/tmp/codefly-home"),
