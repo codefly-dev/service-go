@@ -85,9 +85,36 @@ go test -v -count=1 ./pkg/runtime -run Nix 2>&1 | grep -E '^--- (PASS|SKIP|FAIL)
 If they report `SKIP`, you have not tested that path. Say so rather than
 implying coverage.
 
+## 5. Native ownership adoption — when updating Core's runner dependency
+
+Use `codefly agent deps --pin <published-version>` for the agent, base fixtures,
+and generated factory locks. Build through `codefly agent build --native-only`
+into your own `CODEFLY_HOME`. Isolate the OS `HOME` too: Core's process registry
+is under `HOME/.codefly/runs`, independently of the plugin path. Preserve the
+ordinary Go toolchain/cache settings when isolating the home.
+
+With the actual built agent installed, run:
+
+```bash
+SERVICE_GO_NATIVE_AGENT_HOME=/absolute/path/to/own/codefly-home \
+SERVICE_GO_QUALIFICATION_CLI=/absolute/path/to/qualified/codefly \
+  go test -v -count=1 -timeout 5m . -run '^TestNativeAgentOwnershipLifecycle$'
+```
+
+The gate logs binary and SBOM hashes, loads the real agent through Core's
+authenticated manager, and drives Load/Init/Start/Stop over gRPC. It checks
+ordinary stop and restart, kills only its disposable agent owner's recorded
+birth, then uses the CLI's public preview/expect recovery against the actual
+authenticated-v2 workload record. A separately launched sibling must retain
+its exact birth and live owner throughout. Every registry operation uses a
+temporary OS home. This proves native agent ownership and CLI recovery; it is
+not full CLI composition, Docker, Nix, Linux, or published-release qualification.
+
 ## What "green" means
 
 CI covers steps 1–3. Step 4 does not run in CI at all, so a change to the nix
 environment path is unverified unless you arranged the checkout and ran it. A
 PR that says "tests pass" while every gated suite skipped is the thing the
 fleet standard calls a hack.
+Step 5 is opt-in and must be reported separately, with the exact agent and CLI
+artifacts used. Prior dependency/build results retain their original attribution.

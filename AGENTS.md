@@ -84,6 +84,7 @@ go vet ./...            # CI: Vet
 | `TestPackageRealCGO` (`./pkg/builder`) | `SERVICE_GO_PACKAGE_TESTS=required` | Docker |
 | `TestManifestGuardRender` (root) | `CODEFLY_MANIFEST_*` (see below) | — |
 | `./pkg/runtime` nix integration | — | a sibling `core` checkout for `runners/base/testdata` |
+| `TestNativeAgentOwnershipLifecycle` (root) | `SERVICE_GO_NATIVE_AGENT_HOME` + `SERVICE_GO_QUALIFICATION_CLI` | built native agent + qualified CLI; see `verify-changes` |
 
 The manifest guard runs in CI through a reusable workflow in
 `codefly-dev/.github`, so its local invocation is written down nowhere else —
@@ -127,6 +128,10 @@ rather than re-deriving from `go list`.
   that recipe, so the walk skips the output directory **by directory identity**
   (`os.SameFile`), not by name — a source package named `builder` must still be
   copied.
+- **Native package builds honor the CLI's prepared `GOWORK`.** Unset means
+  `off`; cross packaging uses the pinned graph because the companion cannot
+  access host workspace siblings. Keep toolchain and source discovery aligned
+  with the host build's selection.
 - **`agent.codefly.yaml`'s `version` must equal the release tag** (`v0.0.51` →
   `0.0.51`). It is embedded in the binary and nothing in CI checks it, which is
   why `codefly publish` owns both halves: it bumps the manifest and tags the
