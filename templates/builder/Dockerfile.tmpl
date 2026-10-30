@@ -34,7 +34,7 @@ FROM scratch AS gomodproxy
 # It is the same image pkg/runtime/runtime-image.json locks the Go runtime
 # container to, so a module builds the same way in a local container run and in
 # this recipe. Moving Go moves both; dockerfile_template_test.go holds that.
-FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine3.23@sha256:895e5feab11a4b3774d24ee3c9579028456b82ad37f42a9eb6f82adaf776a201 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine3.23@sha256:8a5046497cda39860b832ffdbe8dd66018a0f05bb01352f533a36e7e2ced66a0 AS builder
 
 # git is the one package the pinned base lacks and GOPRIVATE module fetches
 # need; ca-certificates is already in it, so installing it again would add a
@@ -81,7 +81,7 @@ RUN --mount=type=bind,from=gomodproxy,target=/gomodproxy \
     go version -m app > /go-build-info.txt
 
 # Final stage
-FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+FROM alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
 
 # No `apk add` here on purpose. The pinned base already ships
 # ca-certificates-bundle, which owns /etc/ssl/certs/ca-certificates.crt — the
