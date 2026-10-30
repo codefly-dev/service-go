@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
@@ -39,12 +40,21 @@ func goWorkMode() string {
 	return "off"
 }
 
+// A cross companion cannot see the host's prepared workspace. Source discovery,
+// toolchain selection and its SBOM must use the same pinned graph as its build.
+func packageGoWorkMode(target *builderv0.PackageTarget) string {
+	if target.GetOs() == runtime.GOOS && target.GetArchitecture() == runtime.GOARCH {
+		return goWorkMode()
+	}
+	return "off"
+}
+
 // Use Go's module/toolchain selection on the source, just as the native build
 // does. The cross image supplies C compilers, not the module's Go version.
-func resolvePackageGoToolchain(ctx context.Context, source string) (string, error) {
+func resolvePackageGoToolchain(ctx context.Context, source string, target *builderv0.PackageTarget) (string, error) {
 	command := exec.CommandContext(ctx, "go", "env", "GOVERSION")
 	command.Dir = source
-	command.Env = hostGoEnvironment()
+	command.Env = append(os.Environ(), "GOWORK="+packageGoWorkMode(target))
 	var stderr bytes.Buffer
 	command.Stderr = &stderr
 	output, err := command.Output()
@@ -63,7 +73,7 @@ func resolvePackageGoToolchain(ctx context.Context, source string) (string, erro
 func resolvePackageSource(ctx context.Context, source string, target *builderv0.PackageTarget) (root, entry string, err error) {
 	command := exec.CommandContext(ctx, "go", "list", "-mod=readonly", "-json", ".")
 	command.Dir = source
-	command.Env = hostGoEnvironment("CGO_ENABLED=1", "GOOS="+target.GetOs(), "GOARCH="+target.GetArchitecture())
+	command.Env = append(os.Environ(), "GOWORK="+packageGoWorkMode(target), "CGO_ENABLED=1", "GOOS="+target.GetOs(), "GOARCH="+target.GetArchitecture())
 	var stderr bytes.Buffer
 	command.Stderr = &stderr
 	payload, err := command.Output()
