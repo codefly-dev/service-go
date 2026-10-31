@@ -4,7 +4,7 @@
 // Load (additional endpoint wiring) and Init (REST/gRPC env vars).
 // Test, Lint, Build are reused as-is.
 //
-// Native ownership is implemented by the pinned Core runner. Core v0.19.9
+// Native ownership is implemented by the pinned Core runner. Core v0.19.10
 // writes authenticated-v2 process-group registrations, retaining the launching
 // workspace even when the child environment cannot be inspected. Start and
 // Stop use that runner directly; this agent owns no parallel registry or

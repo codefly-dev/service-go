@@ -57,7 +57,7 @@ func TestPackageRealCGO(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	selectedToolchain, err := resolvePackageGoToolchain(ctx, source)
+	selectedToolchain, err := resolvePackageGoToolchain(ctx, source, &builderv0.PackageTarget{Os: runtime.GOOS, Architecture: runtime.GOARCH})
 	if err != nil {
 		t.Fatal(err)
 	}

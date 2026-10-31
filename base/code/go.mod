@@ -3,7 +3,7 @@ module codefly-base
 go 1.27.3
 
 require (
-	github.com/codefly-dev/core v0.19.9
+	github.com/codefly-dev/core v0.19.10
 	github.com/codefly-dev/sdk-go v0.4.3
 )
 

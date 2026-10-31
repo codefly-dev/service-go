@@ -384,13 +384,15 @@ func (s *Builder) Package(ctx context.Context, req *builderv0.PackageRequest) (*
 	}
 
 	if req.GetIncludeSbom() {
-		source, err := sbom.GolangWithOptions(ctx, s.Service.SourceLocation, sbom.GolangOptions{
-			UseWorkspace: s.Settings.WithWorkspace,
-		})
-		if err != nil {
-			return s.Builder.PackageError(fmt.Errorf("generate package SBOM: %w", err))
-		}
 		for _, executable := range append([]*builderv0.PackageArtifact(nil), artifacts...) {
+			// Inventory the same graph that produced this target. Settings.WithWorkspace
+			// configures service builds; Package follows the CLI's prepared GOWORK.
+			source, err := sbom.GolangWithOptions(ctx, s.Service.SourceLocation, sbom.GolangOptions{
+				UseWorkspace: packageGoWorkMode(executable.GetTarget()) != "off",
+			})
+			if err != nil {
+				return s.Builder.PackageError(fmt.Errorf("generate package SBOM: %w", err))
+			}
 			subject := req.GetSubject()
 			publisher, name, version := "", artifactName, ""
 			if subject != nil {
@@ -552,7 +554,7 @@ func packageCrossGoBinaryWithRunner(ctx context.Context, source, entry, destinat
 	if !supported {
 		return fmt.Errorf("go package %s: no CGO cross toolchain; supported cross targets are darwin/amd64, darwin/arm64, linux/amd64, linux/arm64", identity)
 	}
-	goToolchain, err := resolvePackageGoToolchain(ctx, source)
+	goToolchain, err := resolvePackageGoToolchain(ctx, source, target)
 	if err != nil {
 		return err
 	}
