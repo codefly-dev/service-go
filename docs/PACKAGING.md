@@ -27,8 +27,17 @@ source discovery, toolchain selection, build and inventory because their
 companion mounts the source module, not host workspace siblings. The service's
 with-workspace setting is not Package's graph selector. A single mixed-target
 request may therefore produce different dependency graphs, each bound to its
-own executable digest. The public Package regression compares those inventories
-with dependency versions embedded in real CGO executables.
+own executable digest. The public Package regression links a workspace sibling,
+checks the actual source attachment and all component references, and compares
+the selected graph with dependency versions embedded in real CGO executables.
+
+Workspace SBOM qualification requires the Core workspace-root correction. The
+current released pin, Core v0.19.10, omits other workspace main modules and can
+attach an executable to the wrong source. The strengthened regression is qualified
+with an uncommitted local Core workspace override while that owner fix awaits a
+release. This does not qualify a clean install from the current pin. Adopt the
+released correction through `codefly agent deps --pin`, then rerun standalone,
+generated-service and public native/cross packaging checks before release.
 
 Core v0.19.10 includes the Linux process-identity correction. Native ownership
 records use authenticated-v2; older agents/CLIs that only know authenticated-v1
