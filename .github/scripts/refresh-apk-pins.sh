@@ -50,7 +50,15 @@ base="$(sed -n 's/^ARG GO_IMAGE=\(.*\)$/\1/p' "$DOCKERFILE" | head -1)"
 # Direct registry references cannot express an HTTP mirror's transport policy,
 # so leave those to Docker. If the direct pull fails, Docker also retains its
 # normal ordered mirror/origin fallback through the original reference.
-mirror="$(docker info --format '{{range .RegistryConfig.Mirrors}}{{println .}}{{end}}' | head -1)"
+#
+# An engine with no mirror configured — a GitHub-hosted runner, where this runs
+# weekly — would otherwise pull docker.io directly, and from the runners' shared
+# IPs Docker Hub answers `toomanyrequests` often enough that the check would go
+# red about a rate limit instead of about drift. So the default is a public
+# Docker Hub mirror; the digest is unchanged, so it serves the identical bytes.
+# DOCKER_HUB_MIRROR overrides both.
+mirror="${DOCKER_HUB_MIRROR:-$(docker info --format '{{range .RegistryConfig.Mirrors}}{{println .}}{{end}}' | head -1)}"
+[[ -n "$mirror" ]] || mirror="https://mirror.gcr.io"
 if [[ "$mirror" == https://* && "$base" == golang:*@sha256:* ]]; then
   mirror="${mirror#https://}"
   mirrored="${mirror%/}/library/$base"
