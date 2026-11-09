@@ -21,7 +21,7 @@ RUN apk add --no-cache \
     git=2.52.0-r0 \
     jq=1.8.2-r0 \
     procps-ng=4.0.5-r0 \
-    tzdata=2026e-r0 && \
+    tzdata=2026f-r0 && \
     rm -f /var/log/apk.log
 
 LABEL org.opencontainers.image.source="https://github.com/codefly-dev/service-go"
