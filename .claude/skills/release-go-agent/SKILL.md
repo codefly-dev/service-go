@@ -96,8 +96,9 @@ version in `go.mod`, **two independent pins move with it**:
 | `ghcr.io/goreleaser/goreleaser-cross` in `pkg/builder/builder.go` | packaging *user services* at runtime |
 
 They are set independently and neither one's drift is caught by a build. Both
-are on `v1.27.3`, matching `go.mod`. Check the tag is published before moving
-them — never pin one that is not.
+are on `v1.27.3`, the newest published tag; `go.mod` is on 1.27.4, which has no
+image yet, and the image's `GOTOOLCHAIN=auto` downloads the toolchain `go.mod`
+names. Check the tag is published before moving them — never pin one that is not.
 
 The `builder.go` pin is only a bootstrap for user-service packaging, which is
 why its drift is less sharp than the release pin's: `Package` passes

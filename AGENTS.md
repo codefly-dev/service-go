@@ -68,7 +68,7 @@ it was seen rather than where it lives.
 ## Build and test
 
 Derived from `.github/workflows/ci.yml`. The Go version comes from `go.mod`
-(1.27.3) — CI reads it with `go-version-file`, so it is never pinned twice.
+(1.27.4) — CI reads it with `go-version-file`, so it is never pinned twice.
 
 ```bash
 go build ./...          # CI: Build
