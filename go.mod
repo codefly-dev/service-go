@@ -1,6 +1,6 @@
 module github.com/codefly-dev/service-go
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/codefly-dev/core v0.19.19

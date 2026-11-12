@@ -5,7 +5,7 @@
 #
 # Move Go here (GO_IMAGE), re-lock, tag runtime-v<n>; the Runtime image
 # workflow publishes ghcr.io/codefly-dev/service-go-runtime at that digest.
-ARG GO_IMAGE=golang:1.27.3-alpine3.23@sha256:5d5113301ffcac84e2bfb20c42648803fecaea6789c89bb9b66884e18cbb30a7
+ARG GO_IMAGE=golang:1.27.4-alpine3.23@sha256:146e3b9c7c1e2ec3d3f5348c8a686151a75e1976e50efac9fc022ebe446a9a82
 ARG SOURCE_DATE_EPOCH=0
 
 FROM ${GO_IMAGE} AS runtime
@@ -18,7 +18,7 @@ ENV GOTOOLCHAIN=local
 RUN apk add --no-cache \
     bash=5.3.3-r1 \
     curl=8.23.0-r0 \
-    git=2.52.0-r0 \
+    git=2.52.1-r0 \
     jq=1.8.2-r0 \
     procps-ng=4.0.5-r0 \
     tzdata=2026f-r0 && \
