@@ -3,9 +3,9 @@ module github.com/codefly-dev/service-go
 go 1.27.4
 
 require (
-	github.com/codefly-dev/core v0.19.19
+	github.com/codefly-dev/core v0.19.24
 	github.com/stretchr/testify v1.12.1
-	golang.org/x/mod v0.42.0
+	golang.org/x/mod v0.43.0
 	golang.org/x/tools v0.52.0
 	google.golang.org/grpc v1.85.0
 	google.golang.org/protobuf v1.36.12
