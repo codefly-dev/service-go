@@ -17,7 +17,7 @@ func TestPackageRejectsLibraryArchive(t *testing.T) {
 	mustWrite(t, filepath.Join(source, "go.mod"), "module example.test/library\n\ngo 1.27.0\n", 0600)
 	mustWrite(t, filepath.Join(source, "library.go"), "package library\nconst Value = 42\n", 0600)
 	destination := filepath.Join(t.TempDir(), "agent")
-	err := packageGoBinary(t.Context(), source, destination, &builderv0.PackageTarget{Os: runtime.GOOS, Architecture: runtime.GOARCH})
+	err := packageGoBinary(t.Context(), source, destination, &builderv0.PackageTarget{Os: runtime.GOOS, Architecture: runtime.GOARCH}, "off")
 	if err == nil || !strings.Contains(err.Error(), "package main") {
 		t.Fatalf("library must not be packaged as an executable: %v", err)
 	}
@@ -36,7 +36,7 @@ func TestPackageDeclaredNestedMainUsesEnclosingModule(t *testing.T) {
 	}
 	mustWrite(t, filepath.Join(source, "main.go"), "package main\nimport (\"fmt\"; \"example.test/nested\")\nfunc main() { fmt.Println(nested.Value) }\n", 0600)
 	destination := filepath.Join(t.TempDir(), "agent")
-	if err := packageGoBinary(t.Context(), source, destination, &builderv0.PackageTarget{Os: runtime.GOOS, Architecture: runtime.GOARCH}); err != nil {
+	if err := packageGoBinary(t.Context(), source, destination, &builderv0.PackageTarget{Os: runtime.GOOS, Architecture: runtime.GOARCH}, "off"); err != nil {
 		t.Fatal(err)
 	}
 	output, err := exec.CommandContext(t.Context(), destination).CombinedOutput()

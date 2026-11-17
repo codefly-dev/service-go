@@ -102,7 +102,7 @@ func TestPackageCrossShutdown(t *testing.T) {
 				}}, nil
 			}
 			target := &builderv0.PackageTarget{Os: runtime.GOOS, Architecture: runtime.GOARCH}
-			err := packageCrossGoBinaryWithRunner(ctx, source, ".", destination, target, factory)
+			err := packageCrossGoBinaryWithRunner(ctx, source, ".", destination, target, "off", factory)
 			if !shutdownCalled {
 				t.Fatalf("build never reached cleanup: %v", err)
 			}

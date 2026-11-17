@@ -360,6 +360,10 @@ func (s *Builder) Package(ctx context.Context, req *builderv0.PackageRequest) (*
 		return s.Builder.PackageError(fmt.Errorf("create package output: %w", err))
 	}
 
+	goWork, err := packageGoWork(ctx, s.Service.SourceLocation, s.Settings.WithWorkspace)
+	if err != nil {
+		return s.Builder.PackageError(err)
+	}
 	artifacts := make([]*builderv0.PackageArtifact, 0, len(targets)*2)
 	for _, target := range targets {
 		destinationDirectory := filepath.Join(outputDirectory, target.GetOs()+"-"+target.GetArchitecture())
@@ -367,7 +371,7 @@ func (s *Builder) Package(ctx context.Context, req *builderv0.PackageRequest) (*
 			return s.Builder.PackageError(fmt.Errorf("create target output: %w", err))
 		}
 		destination := filepath.Join(destinationDirectory, artifactName)
-		if err := packageGoBinary(ctx, s.Service.SourceLocation, destination, target); err != nil {
+		if err := packageGoBinary(ctx, s.Service.SourceLocation, destination, target, goWork); err != nil {
 			return s.Builder.PackageError(err)
 		}
 		digest, err := packageFileSHA256(destination)
@@ -474,8 +478,8 @@ func validPackageTargetComponent(value string) bool {
 	return true
 }
 
-func packageGoBinary(ctx context.Context, source, destination string, target *builderv0.PackageTarget) error {
-	moduleRoot, entry, err := resolvePackageSource(ctx, source, target)
+func packageGoBinary(ctx context.Context, source, destination string, target *builderv0.PackageTarget, goWork string) error {
+	moduleRoot, entry, err := resolvePackageSource(ctx, source, target, goWork)
 	if err != nil {
 		return err
 	}
@@ -490,10 +494,10 @@ func packageGoBinary(ctx context.Context, source, destination string, target *bu
 	}
 	defer os.Remove(temporaryPath)
 	if target.GetOs() == runtime.GOOS && target.GetArchitecture() == runtime.GOARCH {
-		if err := packageNativeGoBinary(ctx, moduleRoot, entry, temporaryPath, target); err != nil {
+		if err := packageNativeGoBinary(ctx, moduleRoot, entry, temporaryPath, target, goWork); err != nil {
 			return err
 		}
-	} else if err := packageCrossGoBinary(ctx, moduleRoot, entry, temporaryPath, target); err != nil {
+	} else if err := packageCrossGoBinary(ctx, moduleRoot, entry, temporaryPath, target, goWork); err != nil {
 		return err
 	}
 	if err := os.Chmod(temporaryPath, 0o755); err != nil {
@@ -505,10 +509,10 @@ func packageGoBinary(ctx context.Context, source, destination string, target *bu
 	return nil
 }
 
-func packageNativeGoBinary(ctx context.Context, source, entry, destination string, target *builderv0.PackageTarget) error {
+func packageNativeGoBinary(ctx context.Context, source, entry, destination string, target *builderv0.PackageTarget, goWork string) error {
 	command := exec.CommandContext(ctx, "go", "build", "-trimpath", "-o", destination, entry)
 	command.Dir = source
-	command.Env = hostGoEnvironment(
+	command.Env = hostGoEnvironment(goWork,
 		"CGO_ENABLED=1",
 		"GOOS="+target.GetOs(),
 		"GOARCH="+target.GetArchitecture(),
@@ -540,11 +544,11 @@ func crossCGOToolchainFor(identity string) (crossCGOToolchain, bool) {
 	}
 }
 
-func packageCrossGoBinary(ctx context.Context, source, entry, destination string, target *builderv0.PackageTarget) error {
-	return packageCrossGoBinaryWithRunner(ctx, source, entry, destination, target, companion.NewCompanionRunner)
+func packageCrossGoBinary(ctx context.Context, source, entry, destination string, target *builderv0.PackageTarget, goWork string) error {
+	return packageCrossGoBinaryWithRunner(ctx, source, entry, destination, target, goWork, companion.NewCompanionRunner)
 }
 
-func packageCrossGoBinaryWithRunner(ctx context.Context, source, entry, destination string, target *builderv0.PackageTarget,
+func packageCrossGoBinaryWithRunner(ctx context.Context, source, entry, destination string, target *builderv0.PackageTarget, goWork string,
 	newRunner func(context.Context, companion.CompanionOpts) (companion.CompanionRunner, error),
 ) (resultErr error) {
 	identity := target.GetOs() + "/" + target.GetArchitecture()
@@ -552,9 +556,18 @@ func packageCrossGoBinaryWithRunner(ctx context.Context, source, entry, destinat
 	if !supported {
 		return fmt.Errorf("go package %s: no CGO cross toolchain; supported cross targets are darwin/amd64, darwin/arm64, linux/amd64, linux/arm64", identity)
 	}
-	goToolchain, err := resolvePackageGoToolchain(ctx, source)
+	goToolchain, err := resolvePackageGoToolchain(ctx, source, goWork)
 	if err != nil {
 		return err
+	}
+	// The toolchain sees nothing of the host but what it is given. A workspace
+	// is honoured by making it visible at its own paths, never by building
+	// what go.mod pins in its place.
+	var workspace []string
+	if goWork != "off" {
+		if workspace, err = packageWorkspaceMounts(source, goWork); err != nil {
+			return err
+		}
 	}
 
 	name := fmt.Sprintf("go-package-%s-%s-%d", target.GetOs(), target.GetArchitecture(), time.Now().UnixNano())
@@ -590,6 +603,9 @@ func packageCrossGoBinaryWithRunner(ctx context.Context, source, entry, destinat
 	// that entrypoint and keeps the container alive for Docker exec.
 	runner.WithEntrypoint()
 	runner.WithMount(filepath.Dir(destination), filepath.Dir(destination))
+	for _, path := range workspace {
+		runner.WithMount(path, path)
+	}
 	runner.WithWorkDir(source)
 	runner.WithUser(fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()))
 	runner.WithPause()
@@ -607,10 +623,7 @@ func packageCrossGoBinaryWithRunner(ctx context.Context, source, entry, destinat
 		resources.Env("GOARCH", target.GetArchitecture()),
 		resources.Env("CC", toolchain.cc),
 		resources.Env("CXX", toolchain.cxx),
-		// Off even when the CLI prepared a go.work: the companion mounts only
-		// the source and the destination, so a `use` path on the host does not
-		// exist in the container. A cross build is always the pinned graph.
-		resources.Env("GOWORK", "off"),
+		resources.Env("GOWORK", goWork),
 		resources.Env("GOTOOLCHAIN", goToolchain),
 		resources.Env("HOME", "/tmp/codefly-home"),
 		resources.Env("GOCACHE", "/tmp/codefly-go-build"),

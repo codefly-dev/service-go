@@ -127,7 +127,7 @@ go vet ./...            # CI: Vet
 
 | Suite | Opt in with | Needs |
 | --- | --- | --- |
-| `TestPackageRealCGO` (`./pkg/builder`) | `SERVICE_GO_PACKAGE_TESTS=required` | Docker |
+| `TestPackageRealCGO`, `TestPackageRealCrossGoWork` (`./pkg/builder`) | `SERVICE_GO_PACKAGE_TESTS=required` | Docker |
 | `TestManifestGuardRender` (root) | `CODEFLY_MANIFEST_*` (see below) | — |
 | `./pkg/runtime` nix integration | — | a sibling `core` checkout for `runners/base/testdata` |
 
@@ -188,6 +188,16 @@ rather than re-deriving from `go list`.
 - **The archive name is a contract with core's downloader**
   (`service-{name}_{version}_{os}_{arch}.tar.gz`). Renaming it breaks install,
   not CI.
+- **`Builder.Package` builds one module graph, and never a quieter one.**
+  `packageGoWork` settles it once per call: the `GOWORK` the caller prepared
+  (the CLI binds a local build's `go.work`, and sets `off` for standalone CI),
+  else the `go.work` Go discovers for a `with-workspace` service, else the
+  pinned graph. Native and cross targets build the same one — the cross
+  toolchain container is given the `go.work` and each member at its own path —
+  so a `go.work` → core checkout links that checkout in every artifact. A
+  workspace that cannot be honoured is an error naming it; forcing
+  `GOWORK=off` in its place once shipped the published core under a local
+  build's name with no error.
 - **A start must say what it ran.** `Runtime.Start` reports the executable it
   built and launched (`runtime-started-artifact/v1`), and `pkg/service`
   advertises the capability because it does. A native `codefly run` approves

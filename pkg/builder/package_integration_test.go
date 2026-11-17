@@ -57,7 +57,7 @@ func TestPackageRealCGO(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	selectedToolchain, err := resolvePackageGoToolchain(ctx, source)
+	selectedToolchain, err := resolvePackageGoToolchain(ctx, source, "off")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestPackageRealCGO(t *testing.T) {
 		seen[identity] = true
 		t.Run(identity, func(t *testing.T) {
 			destination := filepath.Join(root, strings.ReplaceAll(identity, "/", "-"))
-			if err := packageGoBinary(ctx, filepath.Join(source, "cmd", "agent"), destination, target); err != nil {
+			if err := packageGoBinary(ctx, filepath.Join(source, "cmd", "agent"), destination, target, "off"); err != nil {
 				t.Fatal(err)
 			}
 			info, err := os.Stat(destination)
