@@ -34,7 +34,7 @@ pure-Go fixture misses both failures this guards.
 
 ```bash
 SERVICE_GO_PACKAGE_TESTS=required \
-  go test -race -count=1 -timeout 15m ./pkg/builder -run TestPackageRealCGO
+  go test -race -count=1 -timeout 15m ./pkg/builder -run TestPackageReal
 ```
 
 Without the env var it prints `ok` having run nothing.
