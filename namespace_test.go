@@ -13,6 +13,7 @@ import (
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
+	gobuilder "github.com/codefly-dev/service-go/pkg/builder"
 	"github.com/stretchr/testify/require"
 )
 
@@ -66,7 +67,7 @@ func renderProfile(t *testing.T, profile builderv0.KubernetesOutputProfile) stri
 
 	destination := t.TempDir()
 	deployment := &builderv0.KubernetesDeployment{Namespace: "codefly-test", Destination: destination, Profile: profile}
-	params := services.DeploymentParameters{ConfigMap: services.EnvironmentMap{"CODEFLY_TEST_VALUE": "value"}}
+	params := services.DeploymentParameters{ConfigMap: services.EnvironmentMap{"CODEFLY_TEST_VALUE": "value"}, Parameters: gobuilder.NewDeploymentParameters()}
 	if err := builder.KustomizeDeploy(ctx, &basev0.Environment{Name: "test"}, deployment, deploymentFS, params); err != nil {
 		t.Fatalf("render %s: %v", profile, err)
 	}

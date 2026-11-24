@@ -32,7 +32,7 @@ spec:
           image: {{ .Image }}
           ports:
             - name: http
-              containerPort: 8080
+              containerPort: {{ .Deployment.Parameters.HTTPPort }}
           securityContext:
             allowPrivilegeEscalation: false
             runAsNonRoot: true
@@ -52,13 +52,13 @@ spec:
               memory: 64Mi
           startupProbe:
             tcpSocket:
-              port: 8080
+              port: {{ .Deployment.Parameters.HTTPPort }}
           readinessProbe:
             tcpSocket:
-              port: 8080
+              port: {{ .Deployment.Parameters.HTTPPort }}
           livenessProbe:
             tcpSocket:
-              port: 8080
+              port: {{ .Deployment.Parameters.HTTPPort }}
           envFrom:
             - configMapRef:
                 name: cm-{{ .Service.Name.DNSCase }}

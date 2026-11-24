@@ -12,6 +12,7 @@ import (
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
+	gobuilder "github.com/codefly-dev/service-go/pkg/builder"
 	"gopkg.in/yaml.v3"
 )
 
@@ -29,7 +30,7 @@ const hostileEnvironmentValue = "{\"documents\":{\"path\":\"C:\\\\data\"}}\nseco
 // value with nothing to escape must still render exactly as it always did.
 func TestEnvironmentValuesRenderAsEscapedYAMLScalars(t *testing.T) {
 	values := services.EnvironmentMap{"HOSTILE": hostileEnvironmentValue, "PLAIN": "abc"}
-	overlay := renderEnvironmentValues(t, values, nil)
+	overlay := renderEnvironmentValues(t, values, gobuilder.NewDeploymentParameters())
 	for _, manifest := range []string{"configmap.yaml", "secret.yaml"} {
 		t.Run(manifest, func(t *testing.T) {
 			rendered, err := os.ReadFile(filepath.Join(overlay, manifest))

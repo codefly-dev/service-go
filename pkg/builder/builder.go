@@ -154,6 +154,31 @@ const goModuleRoot = "code"
 // prefetched Go modules from (the `gomodproxy` stage in the template).
 const goModuleProxyContext = "gomodproxy"
 
+// httpPort is the port the service's HTTP listener binds in a container: the
+// standard port of its API. The Dockerfile's EXPOSE and every port in the
+// kustomize bundle render it, so the number is written in no template.
+func httpPort() uint16 { return standards.Port(standards.HTTP) }
+
+// dockerTemplating is what the Dockerfile template reads: core's Go recipe
+// inputs and the port the image exposes.
+type dockerTemplating struct {
+	golanghelpers.DockerTemplating
+	HTTPPort uint16
+}
+
+// DeploymentParameters is what the kustomize templates read as
+// .Deployment.Parameters.
+type DeploymentParameters struct {
+	// HTTPPort is the Service port, its targetPort, the containerPort and the
+	// port the probes dial.
+	HTTPPort uint16
+}
+
+// NewDeploymentParameters returns the parameters Deploy renders with.
+func NewDeploymentParameters() DeploymentParameters {
+	return DeploymentParameters{HTTPPort: httpPort()}
+}
+
 // buildRecipe renders the Dockerfile, dockerignore, and Go source into the
 // caller-owned output directory and returns a single-image DockerBuildPlan. The
 // image becomes a durable, reproducible recipe the CLI rebuilds with buildx, so
@@ -165,10 +190,13 @@ func (s *Builder) buildRecipe(ctx context.Context, req *builderv0.BuildRequest, 
 	}
 	image := s.Builder.DockerImage(dockerRequest)
 
-	docker := golanghelpers.DockerTemplating{
-		Components:    s.cfg.Requirements.All(),
-		GoVersion:     s.cfg.GoVersion,
-		AlpineVersion: s.cfg.AlpineVersion,
+	docker := dockerTemplating{
+		DockerTemplating: golanghelpers.DockerTemplating{
+			Components:    s.cfg.Requirements.All(),
+			GoVersion:     s.cfg.GoVersion,
+			AlpineVersion: s.cfg.AlpineVersion,
+		},
+		HTTPPort: httpPort(),
 	}
 	err = s.Builder.Templates(ctx, docker,
 		services.WithBuilder(s.cfg.BuilderFS).WithDestination("%s", filepath.Join(outputDir, "builder")))
@@ -675,7 +703,8 @@ func writePackageFile(destination string, payload []byte, mode os.FileMode) erro
 func (s *Builder) Deploy(ctx context.Context, req *builderv0.DeploymentRequest) (*builderv0.DeploymentResponse, error) {
 	defer s.Wool.Catch()
 	ctx = s.Wool.Inject(ctx)
-	return golanghelpers.DeployGoKubernetes(ctx, s.Base.Builder, req, s.EnvironmentVariables, s.cfg.DeploymentFS)
+	return golanghelpers.DeployGoKubernetes(ctx, s.Base.Builder, req, s.EnvironmentVariables, s.cfg.DeploymentFS,
+		func(deployment *services.KustomizeDeployment) { deployment.Parameters = NewDeploymentParameters() })
 }
 
 // Options are the default communicate questions for `codefly add service`.

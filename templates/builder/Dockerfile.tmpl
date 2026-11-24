@@ -110,5 +110,5 @@ RUN adduser -D appuser
 COPY --chown=appuser --from=builder /app/code/app .
 USER appuser
 
-EXPOSE 8080
+EXPOSE {{ .HTTPPort }}
 CMD ["./app"]

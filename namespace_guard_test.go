@@ -12,6 +12,7 @@ import (
 	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
+	gobuilder "github.com/codefly-dev/service-go/pkg/builder"
 	"github.com/stretchr/testify/require"
 )
 
@@ -125,8 +126,9 @@ func renderDeploymentTree(t *testing.T, profile builderv0.KubernetesOutputProfil
 		Profile:     profile,
 	}
 	params := services.DeploymentParameters{
-		ConfigMap: services.EnvironmentMap{"CODEFLY_TEST_VALUE": "value"},
-		SecretMap: services.EnvironmentMap{"CODEFLY_TEST_SECRET": "value"},
+		ConfigMap:  services.EnvironmentMap{"CODEFLY_TEST_VALUE": "value"},
+		SecretMap:  services.EnvironmentMap{"CODEFLY_TEST_SECRET": "value"},
+		Parameters: gobuilder.NewDeploymentParameters(),
 	}
 	if err := builder.KustomizeDeploy(ctx, &basev0.Environment{Name: "test"}, deployment, deploymentFS, params); err != nil {
 		t.Fatalf("render %s kustomize templates: %v", profile, err)
