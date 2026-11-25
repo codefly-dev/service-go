@@ -120,12 +120,9 @@ func TestBuildEmitsRecipePlan(t *testing.T) {
 	if recipe.GetContextRoot() != builderv1.RecipeContextRoot_RECIPE_CONTEXT_ROOT_OUTPUT {
 		t.Fatalf("context root = %v; rewritten sources must build from output_directory", recipe.GetContextRoot())
 	}
-	// v5, not v4: the recipe declares its Go module download as well as an
-	// explicit context root, and core derives the contract from what the
-	// recipe carries. A v4 plan here would mean the declaration was dropped
-	// and the caller prefetches nothing.
-	if plan.GetContractVersion() != services.DockerBuildRecipeGoModulesContractVersion {
-		t.Fatalf("a recipe declaring module downloads requires v5, got %q", plan.GetContractVersion())
+	// The v1 contract covers the explicit context root and Go module download.
+	if plan.GetContractVersion() != services.DockerBuildRecipeContractVersion {
+		t.Fatalf("a recipe declaring module downloads requires v1, got %q", plan.GetContractVersion())
 	}
 	if got := recipe.GetPlatforms(); len(got) != 2 || got[0] != "linux/amd64" || got[1] != "linux/arm64" {
 		t.Errorf("platforms = %v", got)

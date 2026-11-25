@@ -9,7 +9,7 @@ The recipe explicitly declares `context_root=OUTPUT` and `context="."`. The
 executor must build that emitted tree, not the original service: the latter still
 contains sibling-relative replacements that cannot resolve in an image.
 
-This declaration requires `codefly.dev/docker-build-recipe/v4` support in the
+This declaration requires `codefly.dev/docker-build-recipe/v1` support in the
 executor. An older host rejects the plan before building. Upgrade the CLI before
 adopting an agent release containing this change; do not edit the source go.mod,
 copy siblings by hand, or change the Dockerfile to compensate.

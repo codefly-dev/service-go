@@ -33,7 +33,7 @@ func TestServiceRecipeDeclaresItsGoModuleDownload(t *testing.T) {
 	require.NotNil(t, plan, "state %v message %q", resp.GetState().GetState(), resp.GetState().GetMessage())
 
 	require.NoError(t, services.VerifyDockerBuildPlan(out, plan))
-	require.Equal(t, services.DockerBuildRecipeGoModulesContractVersion, plan.GetContractVersion())
+	require.Equal(t, services.DockerBuildRecipeContractVersion, plan.GetContractVersion())
 
 	downloads := plan.GetRecipes()[0].GetGoModuleDownloads()
 	require.Len(t, downloads, 1)
