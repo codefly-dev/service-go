@@ -40,6 +40,7 @@ func TestSelfBootstrapAdvertisesTheRuntimeContract(t *testing.T) {
 
 	home := t.TempDir()
 	t.Setenv(resources.CodeflyHomeEnv, home)
+	t.Setenv(manager.AgentSourceEnv, "local")
 	installed, err := agent.Path(t.Context())
 	if err != nil {
 		t.Fatal(err)
