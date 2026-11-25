@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/codefly-dev/core/runners/companion"
 	"github.com/codefly-dev/core/runners/dockerrun"
 	"github.com/codefly-dev/core/runners/recoveryscope"
@@ -67,7 +67,7 @@ func TestPackageHonoursThePreparedGoWork(t *testing.T) {
 	source, goWork := writeGoWorkFixture(t)
 	t.Setenv("GOWORK", goWork)
 	destination := filepath.Join(t.TempDir(), "agent")
-	target := &builderv0.PackageTarget{Os: runtime.GOOS, Architecture: runtime.GOARCH}
+	target := &builderv1.PackageTarget{Os: runtime.GOOS, Architecture: runtime.GOARCH}
 	if err := packageGoBinary(t.Context(), source, destination, target, goWorkMode()); err != nil {
 		t.Fatalf("a build the CLI prepared with a go.work must link the workspace: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestPackageHonoursThePreparedGoWork(t *testing.T) {
 // refused: the graph is go.mod/go.sum alone, and the sibling is not in it.
 func TestPackageWithoutAPreparedGoWorkIsThePinnedGraph(t *testing.T) {
 	source, _ := writeGoWorkFixture(t)
-	target := &builderv0.PackageTarget{Os: runtime.GOOS, Architecture: runtime.GOARCH}
+	target := &builderv1.PackageTarget{Os: runtime.GOOS, Architecture: runtime.GOARCH}
 	for name, mode := range map[string]string{"unset": "", "off": "off"} {
 		t.Run(name, func(t *testing.T) {
 			t.Setenv("GOWORK", mode)
@@ -163,7 +163,7 @@ func TestPackageCrossHonoursThePreparedGoWork(t *testing.T) {
 		recorder.CompanionRunner = runner
 		return recorder, err
 	}
-	target := &builderv0.PackageTarget{Os: runtime.GOOS, Architecture: runtime.GOARCH}
+	target := &builderv1.PackageTarget{Os: runtime.GOOS, Architecture: runtime.GOARCH}
 	if err := packageCrossGoBinaryWithRunner(t.Context(), source, ".", destination, target, goWork, factory); err != nil {
 		t.Fatalf("a cross build prepared with a go.work must link the workspace: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestPackageCrossRefusesAWorkspaceItCannotLoad(t *testing.T) {
 		opts.PreferredBackend = companion.BackendLocal
 		return companion.NewCompanionRunner(ctx, opts)
 	}
-	target := &builderv0.PackageTarget{Os: runtime.GOOS, Architecture: runtime.GOARCH}
+	target := &builderv1.PackageTarget{Os: runtime.GOOS, Architecture: runtime.GOARCH}
 	err := packageCrossGoBinaryWithRunner(t.Context(), source, ".", destination, target, goWork, factory)
 	if err == nil || !strings.Contains(err.Error(), "sibling") || !strings.Contains(err.Error(), goWork) {
 		t.Fatalf("an unloadable workspace must be refused naming it and its member, got: %v", err)
@@ -227,9 +227,9 @@ func TestPackageRealCrossGoWork(t *testing.T) {
 	if err := dockerrun.SetContainerRecoveryScope(scope); err != nil {
 		t.Fatal(err)
 	}
-	target := &builderv0.PackageTarget{Os: "linux", Architecture: "amd64"}
+	target := &builderv1.PackageTarget{Os: "linux", Architecture: "amd64"}
 	if runtime.GOOS == "linux" && runtime.GOARCH == "amd64" {
-		target = &builderv0.PackageTarget{Os: "linux", Architecture: "arm64"}
+		target = &builderv1.PackageTarget{Os: "linux", Architecture: "arm64"}
 	}
 	destination := filepath.Join(root, "out", "agent")
 	if err := os.Mkdir(filepath.Dir(destination), 0700); err != nil {

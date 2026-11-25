@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/agents/services"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/codefly-dev/core/resources"
 	golanghelpers "github.com/codefly-dev/core/runners/golang"
 	"github.com/codefly-dev/core/wool"
@@ -25,14 +25,14 @@ func TestManifestGuardRender(t *testing.T) {
 		t.Skip("CODEFLY_MANIFEST_DESTINATION not set")
 	}
 	profileName := os.Getenv("CODEFLY_MANIFEST_PROFILE")
-	profileValue, ok := builderv0.KubernetesOutputProfile_value[profileName]
-	if !ok || builderv0.KubernetesOutputProfile(profileValue) == builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_UNSPECIFIED {
+	profileValue, ok := builderv1.KubernetesOutputProfile_value[profileName]
+	if !ok || builderv1.KubernetesOutputProfile(profileValue) == builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_UNSPECIFIED {
 		t.Fatalf("unknown CODEFLY_MANIFEST_PROFILE %q", profileName)
 	}
-	profile := builderv0.KubernetesOutputProfile(profileValue)
+	profile := builderv1.KubernetesOutputProfile(profileValue)
 
 	ctx := context.Background()
-	protoIdentity := &basev0.ServiceIdentity{Workspace: "workspace", Module: "module", Name: "example-service", Version: "1.2.3"}
+	protoIdentity := &basev1.ServiceIdentity{Workspace: "workspace", Module: "module", Name: "example-service", Version: "1.2.3"}
 	base := &services.Base{Wool: wool.Get(ctx)}
 	if err := base.HeadlessLoad(ctx, protoIdentity); err != nil {
 		t.Fatalf("headless load: %v", err)
@@ -52,10 +52,10 @@ func TestManifestGuardRender(t *testing.T) {
 	manager := base.EnvironmentVariables
 	manager.SetIdentity(protoIdentity)
 
-	req := &builderv0.DeploymentRequest{
-		Environment: &basev0.Environment{Name: os.Getenv("CODEFLY_MANIFEST_ENVIRONMENT")},
-		Deployment: &builderv0.Deployment{Kind: &builderv0.Deployment_Kubernetes{
-			Kubernetes: &builderv0.KubernetesDeployment{
+	req := &builderv1.DeploymentRequest{
+		Environment: &basev1.Environment{Name: os.Getenv("CODEFLY_MANIFEST_ENVIRONMENT")},
+		Deployment: &builderv1.Deployment{Kind: &builderv1.Deployment_Kubernetes{
+			Kubernetes: &builderv1.KubernetesDeployment{
 				Namespace:   os.Getenv("CODEFLY_MANIFEST_NAMESPACE"),
 				Destination: destination,
 				Profile:     profile,
@@ -67,7 +67,7 @@ func TestManifestGuardRender(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render manifest bundle: %v", err)
 	}
-	if state := response.GetState().GetState(); state != builderv0.DeploymentStatus_SUCCESS {
+	if state := response.GetState().GetState(); state != builderv1.DeploymentStatus_SUCCESS {
 		t.Fatalf("deployment state = %s, want SUCCESS: %s", state, response.GetState().GetMessage())
 	}
 }

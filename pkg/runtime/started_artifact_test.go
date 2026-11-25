@@ -15,7 +15,7 @@ import (
 
 	"github.com/codefly-dev/core/agents/services"
 	"github.com/codefly-dev/core/builders"
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 	"github.com/codefly-dev/core/resources"
 	golanghelpers "github.com/codefly-dev/core/runners/golang"
 	"github.com/codefly-dev/core/shared"
@@ -77,7 +77,7 @@ func nativeRuntime(t *testing.T, ctx context.Context, root string) *goruntime.Ru
 	if err := rt.SetRuntimeContext(ctx, resources.NewRuntimeContextNative()); err != nil {
 		t.Fatalf("set runtime context: %v", err)
 	}
-	t.Cleanup(func() { _, _ = rt.Stop(context.Background(), &runtimev0.StopRequest{}) })
+	t.Cleanup(func() { _, _ = rt.Stop(context.Background(), &runtimev1.StopRequest{}) })
 	return rt
 }
 
@@ -143,9 +143,9 @@ func sha256Of(t *testing.T, path string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func startedArtifact(t *testing.T, resp *runtimev0.StartResponse) *runtimev0.StartedArtifact {
+func startedArtifact(t *testing.T, resp *runtimev1.StartResponse) *runtimev1.StartedArtifact {
 	t.Helper()
-	if state := resp.GetStatus().GetState(); state != runtimev0.StartStatus_STARTED {
+	if state := resp.GetStatus().GetState(); state != runtimev1.StartStatus_STARTED {
 		t.Fatalf("start state = %s (%s), want STARTED", state, resp.GetStatus().GetMessage())
 	}
 	return resp.GetStatus().GetStartedArtifact()
@@ -162,7 +162,7 @@ func TestNativeStartReportsTheExecutableThatRan(t *testing.T) {
 	writeService(t, root, "example.com/started", "build-one")
 	rt := nativeRuntime(t, ctx, root)
 
-	resp, err := rt.Start(ctx, &runtimev0.StartRequest{})
+	resp, err := rt.Start(ctx, &runtimev1.StartRequest{})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -203,7 +203,7 @@ func TestNativeRestartReportsTheRebuiltExecutable(t *testing.T) {
 	writeService(t, root, "example.com/restarted", "build-one")
 	rt := nativeRuntime(t, ctx, root)
 
-	first, err := rt.Start(ctx, &runtimev0.StartRequest{})
+	first, err := rt.Start(ctx, &runtimev1.StartRequest{})
 	if err != nil {
 		t.Fatalf("first Start: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestNativeRestartReportsTheRebuiltExecutable(t *testing.T) {
 	}
 	write(t, root, "main.go", startedService("build-two"))
 
-	second, err := rt.Start(ctx, &runtimev0.StartRequest{})
+	second, err := rt.Start(ctx, &runtimev1.StartRequest{})
 	if err != nil {
 		t.Fatalf("restart: %v", err)
 	}
@@ -259,7 +259,7 @@ func TestFailedNativeStartReportsNoArtifact(t *testing.T) {
 	writeService(t, root, "example.com/broken", "build-one")
 	rt := nativeRuntime(t, ctx, root)
 
-	first, err := rt.Start(ctx, &runtimev0.StartRequest{})
+	first, err := rt.Start(ctx, &runtimev1.StartRequest{})
 	if err != nil {
 		t.Fatalf("first Start: %v", err)
 	}
@@ -271,11 +271,11 @@ func TestFailedNativeStartReportsNoArtifact(t *testing.T) {
 
 	write(t, root, "main.go", "package main\n\nfunc main() { this is not go }\n")
 
-	resp, err := rt.Start(ctx, &runtimev0.StartRequest{})
+	resp, err := rt.Start(ctx, &runtimev1.StartRequest{})
 	if err != nil {
 		t.Fatalf("Start returned a transport error, want a failed StartStatus: %v", err)
 	}
-	if state := resp.GetStatus().GetState(); state != runtimev0.StartStatus_ERROR {
+	if state := resp.GetStatus().GetState(); state != runtimev1.StartStatus_ERROR {
 		t.Fatalf("start state = %s, want ERROR on a build that does not compile", state)
 	}
 	if artifact := resp.GetStatus().GetStartedArtifact(); artifact != nil {
@@ -308,11 +308,11 @@ func TestHotReloadCompileErrorIsAFailedStartCarryingTheDiagnostics(t *testing.T)
 
 	write(t, root, "main.go", "package main\n\nfunc main() { notAFunction() }\n")
 
-	resp, err := rt.Start(ctx, &runtimev0.StartRequest{})
+	resp, err := rt.Start(ctx, &runtimev1.StartRequest{})
 	if err != nil {
 		t.Fatalf("Start returned a transport error, want a failed StartStatus: %v", err)
 	}
-	if state := resp.GetStatus().GetState(); state != runtimev0.StartStatus_ERROR {
+	if state := resp.GetStatus().GetState(); state != runtimev1.StartStatus_ERROR {
 		t.Fatalf("start state = %s, want ERROR: nothing is serving, and STARTED would have the host deliver a workload with no process", state)
 	}
 	if artifact := resp.GetStatus().GetStartedArtifact(); artifact != nil {
@@ -340,14 +340,14 @@ func TestConcurrentStartsEachReportTheBuildTheyRan(t *testing.T) {
 	rt := nativeRuntime(t, ctx, root)
 
 	// Warm the build so both attempts race the launch rather than the compile.
-	if _, err := rt.Start(ctx, &runtimev0.StartRequest{}); err != nil {
+	if _, err := rt.Start(ctx, &runtimev1.StartRequest{}); err != nil {
 		t.Fatalf("warm Start: %v", err)
 	}
 
 	const attempts = 4
 	type outcome struct {
-		artifact *runtimev0.StartedArtifact
-		state    runtimev0.StartStatus_Status
+		artifact *runtimev1.StartedArtifact
+		state    runtimev1.StartStatus_Status
 	}
 	results := make(chan outcome, attempts)
 	var ready sync.WaitGroup
@@ -357,7 +357,7 @@ func TestConcurrentStartsEachReportTheBuildTheyRan(t *testing.T) {
 		go func() {
 			ready.Done()
 			<-start
-			resp, err := rt.Start(ctx, &runtimev0.StartRequest{})
+			resp, err := rt.Start(ctx, &runtimev1.StartRequest{})
 			if err != nil {
 				results <- outcome{}
 				return
@@ -370,7 +370,7 @@ func TestConcurrentStartsEachReportTheBuildTheyRan(t *testing.T) {
 
 	for i := 0; i < attempts; i++ {
 		got := <-results
-		if got.state != runtimev0.StartStatus_STARTED {
+		if got.state != runtimev1.StartStatus_STARTED {
 			t.Fatalf("attempt %d state = %s, want STARTED", i, got.state)
 		}
 		if got.artifact.GetExecutable() == "" {
@@ -388,7 +388,7 @@ func TestConcurrentStartsEachReportTheBuildTheyRan(t *testing.T) {
 // agent's answer for the process now running.
 func mustExecutable(t *testing.T, rt *goruntime.Runtime, ctx context.Context) string {
 	t.Helper()
-	resp, err := rt.Start(ctx, &runtimev0.StartRequest{})
+	resp, err := rt.Start(ctx, &runtimev1.StartRequest{})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}

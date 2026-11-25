@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/agents"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
 	"github.com/codefly-dev/core/resources"
 
 	goservice "github.com/codefly-dev/service-go/pkg/service"
@@ -40,8 +40,8 @@ func TestFix_GoImports(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	codeResp, err := code.Execute(context.Background(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_Fix{Fix: &codev0.FixRequest{File: "main.go"}},
+	codeResp, err := code.Execute(context.Background(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_Fix{Fix: &codev1.FixRequest{File: "main.go"}},
 	})
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
@@ -70,8 +70,8 @@ func TestFix_GoFmt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	codeResp, err := code.Execute(context.Background(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_Fix{Fix: &codev0.FixRequest{File: "main.go"}},
+	codeResp, err := code.Execute(context.Background(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_Fix{Fix: &codev1.FixRequest{File: "main.go"}},
 	})
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
@@ -91,8 +91,8 @@ func TestFix_DryRunDoesNotWrite(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	codeResp, err := code.Execute(context.Background(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_Fix{Fix: &codev0.FixRequest{File: "main.go", DryRun: true}},
+	codeResp, err := code.Execute(context.Background(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_Fix{Fix: &codev1.FixRequest{File: "main.go", DryRun: true}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -113,7 +113,7 @@ func TestApplyEditRunsSafeFixerByDefault(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(original), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	codeResp, err := code.Execute(context.Background(), &codev0.CodeRequest{Operation: &codev0.CodeRequest_ApplyEdit{ApplyEdit: &codev0.ApplyEditRequest{
+	codeResp, err := code.Execute(context.Background(), &codev1.CodeRequest{Operation: &codev1.CodeRequest_ApplyEdit{ApplyEdit: &codev1.ApplyEditRequest{
 		File: "main.go", Find: "func main() {}", Replace: "func main() { fmt.Println(\"hello\") }",
 	}}})
 	if err != nil {
@@ -135,8 +135,8 @@ func TestApplyEditRunsSafeFixerByDefault(t *testing.T) {
 func TestFix_NoFile(t *testing.T) {
 	code, _ := newTestCode(t)
 
-	codeResp, err := code.Execute(context.Background(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_Fix{Fix: &codev0.FixRequest{File: "nonexistent.go"}},
+	codeResp, err := code.Execute(context.Background(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_Fix{Fix: &codev1.FixRequest{File: "nonexistent.go"}},
 	})
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
@@ -145,7 +145,7 @@ func TestFix_NoFile(t *testing.T) {
 	if resp.Success {
 		t.Error("expected Fix to fail for nonexistent file")
 	}
-	if codeResp.GetFailure().GetCode() != basev0.FailureCode_FAILURE_CODE_NOT_FOUND || !strings.Contains(codeResp.GetFailure().GetMessage(), "not found") {
+	if codeResp.GetFailure().GetCode() != basev1.FailureCode_FAILURE_CODE_NOT_FOUND || !strings.Contains(codeResp.GetFailure().GetMessage(), "not found") {
 		t.Errorf("expected typed not-found failure, got: %v", codeResp.GetFailure())
 	}
 }
@@ -158,8 +158,8 @@ func TestReadFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	codeResp, err := code.Execute(context.Background(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ReadFile{ReadFile: &codev0.ReadFileRequest{Path: "main.go"}},
+	codeResp, err := code.Execute(context.Background(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_ReadFile{ReadFile: &codev1.ReadFileRequest{Path: "main.go"}},
 	})
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
@@ -176,8 +176,8 @@ func TestReadFile(t *testing.T) {
 func TestReadFile_NotFound(t *testing.T) {
 	code, _ := newTestCode(t)
 
-	codeResp, err := code.Execute(context.Background(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ReadFile{ReadFile: &codev0.ReadFileRequest{Path: "nope.go"}},
+	codeResp, err := code.Execute(context.Background(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_ReadFile{ReadFile: &codev1.ReadFileRequest{Path: "nope.go"}},
 	})
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
@@ -192,8 +192,8 @@ func TestWriteFile(t *testing.T) {
 	code, dir := newTestCode(t)
 
 	content := "package sub\n"
-	codeResp, err := code.Execute(context.Background(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_WriteFile{WriteFile: &codev0.WriteFileRequest{
+	codeResp, err := code.Execute(context.Background(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_WriteFile{WriteFile: &codev1.WriteFileRequest{
 			Path: "sub/lib.go", Content: content,
 		}},
 	})
@@ -222,8 +222,8 @@ func TestListFiles(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "pkg", "lib.go"), []byte("package pkg\n"), 0o644)
 	os.WriteFile(filepath.Join(dir, "README.md"), []byte("# test\n"), 0o644)
 
-	codeResp, err := code.Execute(context.Background(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ListFiles{ListFiles: &codev0.ListFilesRequest{
+	codeResp, err := code.Execute(context.Background(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_ListFiles{ListFiles: &codev1.ListFilesRequest{
 			Recursive: true, Extensions: []string{".go"},
 		}},
 	})
@@ -254,8 +254,8 @@ func TestListFiles_NonRecursive(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0o644)
 	os.WriteFile(filepath.Join(dir, "pkg", "lib.go"), []byte("package pkg\n"), 0o644)
 
-	codeResp, err := code.Execute(context.Background(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_ListFiles{ListFiles: &codev0.ListFilesRequest{Recursive: false}},
+	codeResp, err := code.Execute(context.Background(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_ListFiles{ListFiles: &codev1.ListFilesRequest{Recursive: false}},
 	})
 	if err != nil {
 		t.Fatalf("ListFiles: %v", err)
@@ -277,8 +277,8 @@ func TestGetProjectInfoReturnsTypedProjectEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	response, err := code.Execute(context.Background(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
+	response, err := code.Execute(context.Background(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_GetProjectInfo{GetProjectInfo: &codev1.GetProjectInfoRequest{}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -319,8 +319,8 @@ func TestGetProjectInfoFollowsAttachedSourceSymlink(t *testing.T) {
 	svc.SourceLocation = attachment
 	code := New(svc)
 
-	response, err := code.Execute(context.Background(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
+	response, err := code.Execute(context.Background(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_GetProjectInfo{GetProjectInfo: &codev1.GetProjectInfoRequest{}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -359,8 +359,8 @@ func TestGetProjectInfoLoadsAttachedDeclarationBeforeRuntime(t *testing.T) {
 
 	svc := goservice.New(agentDefinition)
 	server := New(svc)
-	response, err := server.Execute(t.Context(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
+	response, err := server.Execute(t.Context(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_GetProjectInfo{GetProjectInfo: &codev1.GetProjectInfoRequest{}},
 	})
 	if err != nil {
 		t.Fatalf("pre-runtime project info: %v", err)
@@ -385,8 +385,8 @@ func TestCodeRebindsWhenRuntimeChangesSourceLocation(t *testing.T) {
 	}
 	first.Service.SourceLocation = second
 
-	response, err := first.Execute(context.Background(), &codev0.CodeRequest{
-		Operation: &codev0.CodeRequest_GetProjectInfo{GetProjectInfo: &codev0.GetProjectInfoRequest{}},
+	response, err := first.Execute(context.Background(), &codev1.CodeRequest{
+		Operation: &codev1.CodeRequest_GetProjectInfo{GetProjectInfo: &codev1.GetProjectInfoRequest{}},
 	})
 	if err != nil {
 		t.Fatal(err)

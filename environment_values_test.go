@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/agents/services"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 	gobuilder "github.com/codefly-dev/service-go/pkg/builder"
@@ -79,13 +79,13 @@ func renderEnvironmentValues(t *testing.T, values services.EnvironmentMap, param
 	base.Builder = builder
 
 	destination := t.TempDir()
-	deployment := &builderv0.KubernetesDeployment{
+	deployment := &builderv1.KubernetesDeployment{
 		Namespace:   "codefly-test",
 		Destination: destination,
-		Profile:     builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
+		Profile:     builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
 	}
 	params := services.DeploymentParameters{ConfigMap: values, SecretMap: values, Parameters: parameters}
-	if err := builder.KustomizeDeploy(ctx, &basev0.Environment{Name: "test"}, deployment, deploymentFS, params); err != nil {
+	if err := builder.KustomizeDeploy(ctx, &basev1.Environment{Name: "test"}, deployment, deploymentFS, params); err != nil {
 		t.Fatalf("render kustomize templates: %v", err)
 	}
 	return filepath.Join(destination, "overlays", "test")

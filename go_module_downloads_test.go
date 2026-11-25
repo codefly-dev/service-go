@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/agents/services"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,11 +20,11 @@ import (
 func TestServiceRecipeDeclaresItsGoModuleDownload(t *testing.T) {
 	b, ctx := loadedBuilder(t)
 	out := filepath.Join(t.TempDir(), "recipe")
-	resp, err := b.Build(ctx, &builderv0.BuildRequest{
+	resp, err := b.Build(ctx, &builderv1.BuildRequest{
 		OutputDirectory: out,
-		BuildContext: &builderv0.BuildContext{
-			Kind: &builderv0.BuildContext_DockerBuildContext{
-				DockerBuildContext: &builderv0.DockerBuildContext{DockerRepository: "registry.example.com"},
+		BuildContext: &builderv1.BuildContext{
+			Kind: &builderv1.BuildContext_DockerBuildContext{
+				DockerBuildContext: &builderv1.DockerBuildContext{DockerRepository: "registry.example.com"},
 			},
 		},
 	})

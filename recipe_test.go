@@ -15,8 +15,8 @@ import (
 
 	"github.com/codefly-dev/core/agents/services"
 	"github.com/codefly-dev/core/agents/services/sbom"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 
 	gobuilder "github.com/codefly-dev/service-go/pkg/builder"
 	goservice "github.com/codefly-dev/service-go/pkg/service"
@@ -59,11 +59,11 @@ func loadBuilderAt(t *testing.T, ws string) (*gobuilder.Builder, context.Context
 	})
 
 	ctx := context.Background()
-	identity := &basev0.ServiceIdentity{
+	identity := &basev1.ServiceIdentity{
 		Name: "myservice", Module: "mymodule", Version: "0.0.1",
 		WorkspacePath: ws, RelativeToWorkspace: ".",
 	}
-	if _, err := b.Load(ctx, &builderv0.LoadRequest{Identity: identity}); err != nil {
+	if _, err := b.Load(ctx, &builderv1.LoadRequest{Identity: identity}); err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	return b, ctx
@@ -75,7 +75,7 @@ func loadBuilderAt(t *testing.T, ws string) (*gobuilder.Builder, context.Context
 func TestBuildEmitsRecipePlan(t *testing.T) {
 	b, ctx := loadedBuilder(t)
 	client := grpcBuilderClient(t, b)
-	capabilities, err := client.BuildCapabilities(ctx, &builderv0.BuildCapabilitiesRequest{})
+	capabilities, err := client.BuildCapabilities(ctx, &builderv1.BuildCapabilitiesRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,18 +84,18 @@ func TestBuildEmitsRecipePlan(t *testing.T) {
 	}
 	out := filepath.Join(t.TempDir(), "recipe")
 
-	resp, err := client.Build(ctx, &builderv0.BuildRequest{
+	resp, err := client.Build(ctx, &builderv1.BuildRequest{
 		OutputDirectory: out,
-		BuildContext: &builderv0.BuildContext{
-			Kind: &builderv0.BuildContext_DockerBuildContext{
-				DockerBuildContext: &builderv0.DockerBuildContext{DockerRepository: "registry.example.com", BuildxBuilder: "recipe-only-no-such-builder", Cache: &builderv0.BuildCacheOptions{Backend: "registry", Scope: "test/service", Imports: []string{"registry.example.com/cache"}}},
+		BuildContext: &builderv1.BuildContext{
+			Kind: &builderv1.BuildContext_DockerBuildContext{
+				DockerBuildContext: &builderv1.DockerBuildContext{DockerRepository: "registry.example.com", BuildxBuilder: "recipe-only-no-such-builder", Cache: &builderv1.BuildCacheOptions{Backend: "registry", Scope: "test/service", Imports: []string{"registry.example.com/cache"}}},
 			},
 		},
 	})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if resp.GetState().GetState() != builderv0.BuildStatus_SUCCESS {
+	if resp.GetState().GetState() != builderv1.BuildStatus_SUCCESS {
 		t.Fatalf("build state = %v, message=%q", resp.GetState().GetState(), resp.GetState().GetMessage())
 	}
 
@@ -117,7 +117,7 @@ func TestBuildEmitsRecipePlan(t *testing.T) {
 	if recipe.GetContext() != "." {
 		t.Errorf("context = %q", recipe.GetContext())
 	}
-	if recipe.GetContextRoot() != builderv0.RecipeContextRoot_RECIPE_CONTEXT_ROOT_OUTPUT {
+	if recipe.GetContextRoot() != builderv1.RecipeContextRoot_RECIPE_CONTEXT_ROOT_OUTPUT {
 		t.Fatalf("context root = %v; rewritten sources must build from output_directory", recipe.GetContextRoot())
 	}
 	// v5, not v4: the recipe declares its Go module download as well as an
@@ -194,11 +194,11 @@ func TestBuildRecipeSkipsSymlinks(t *testing.T) {
 	}
 	out := filepath.Join(t.TempDir(), "recipe")
 
-	resp, err := b.Build(ctx, &builderv0.BuildRequest{
+	resp, err := b.Build(ctx, &builderv1.BuildRequest{
 		OutputDirectory: out,
-		BuildContext: &builderv0.BuildContext{
-			Kind: &builderv0.BuildContext_DockerBuildContext{
-				DockerBuildContext: &builderv0.DockerBuildContext{DockerRepository: "registry.example.com"},
+		BuildContext: &builderv1.BuildContext{
+			Kind: &builderv1.BuildContext_DockerBuildContext{
+				DockerBuildContext: &builderv1.DockerBuildContext{DockerRepository: "registry.example.com"},
 			},
 		},
 	})
@@ -231,11 +231,11 @@ func TestBuildRecipeAtSourceRootExcludesItsOwnOutput(t *testing.T) {
 	}
 	out := filepath.Join(ws, "builder")
 
-	resp, err := b.Build(ctx, &builderv0.BuildRequest{
+	resp, err := b.Build(ctx, &builderv1.BuildRequest{
 		OutputDirectory: out,
-		BuildContext: &builderv0.BuildContext{
-			Kind: &builderv0.BuildContext_DockerBuildContext{
-				DockerBuildContext: &builderv0.DockerBuildContext{DockerRepository: "registry.example.com"},
+		BuildContext: &builderv1.BuildContext{
+			Kind: &builderv1.BuildContext_DockerBuildContext{
+				DockerBuildContext: &builderv1.DockerBuildContext{DockerRepository: "registry.example.com"},
 			},
 		},
 	})
@@ -292,7 +292,7 @@ func grpcBuilderClient(t *testing.T, b *gobuilder.Builder, options ...grpc.Serve
 		t.Fatal(err)
 	}
 	server := grpc.NewServer(options...)
-	builderv0.RegisterBuilderServer(server, b)
+	builderv1.RegisterBuilderServer(server, b)
 	go func() {
 		if err := server.Serve(listener); err != nil {
 			t.Errorf("serve builder: %v", err)
@@ -316,7 +316,7 @@ func TestBuildCapabilitiesBeforeLoad(t *testing.T) {
 	client := grpcBuilderClient(t, b)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	response, err := client.BuildCapabilities(ctx, &builderv0.BuildCapabilitiesRequest{})
+	response, err := client.BuildCapabilities(ctx, &builderv1.BuildCapabilitiesRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -338,20 +338,20 @@ func TestBuildxRecipeOverGRPC(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
 			out := filepath.Join(t.TempDir(), "recipe")
-			docker := &builderv0.DockerBuildContext{DockerRepository: "registry.example.com", BuildxBuilder: "caller-owned-builder"}
+			docker := &builderv1.DockerBuildContext{DockerRepository: "registry.example.com", BuildxBuilder: "caller-owned-builder"}
 			if cached {
-				docker.Cache = &builderv0.BuildCacheOptions{Backend: "registry", Scope: "test/myservice", Imports: []string{"registry.example.com/cache"}, Exports: []string{"registry.example.com/cache"}}
+				docker.Cache = &builderv1.BuildCacheOptions{Backend: "registry", Scope: "test/myservice", Imports: []string{"registry.example.com/cache"}, Exports: []string{"registry.example.com/cache"}}
 			}
-			request := &builderv0.BuildRequest{OutputDirectory: out, BuildContext: &builderv0.BuildContext{Kind: &builderv0.BuildContext_DockerBuildContext{DockerBuildContext: docker}}}
+			request := &builderv1.BuildRequest{OutputDirectory: out, BuildContext: &builderv1.BuildContext{Kind: &builderv1.BuildContext_DockerBuildContext{DockerBuildContext: docker}}}
 			calls := make(chan string, 2)
 			client := grpcBuilderClient(t, b, grpc.UnaryInterceptor(func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 				calls <- info.FullMethod
-				if info.FullMethod == builderv0.Builder_BuildCapabilities_FullMethodName {
+				if info.FullMethod == builderv1.Builder_BuildCapabilities_FullMethodName {
 					if _, err := os.Stat(out); !os.IsNotExist(err) {
 						t.Errorf("capability negotiation prepared recipe output: %v", err)
 					}
 				}
-				if build, ok := req.(*builderv0.BuildRequest); ok && !proto.Equal(build, request) {
+				if build, ok := req.(*builderv1.BuildRequest); ok && !proto.Equal(build, request) {
 					t.Errorf("Build request changed in transit: %v", build)
 				}
 				return handler(ctx, req)
@@ -360,10 +360,10 @@ func TestBuildxRecipeOverGRPC(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if response.GetState().GetState() != builderv0.BuildStatus_SUCCESS {
+			if response.GetState().GetState() != builderv1.BuildStatus_SUCCESS {
 				t.Fatalf("Build failed: %v", response.GetState())
 			}
-			for _, want := range []string{builderv0.Builder_BuildCapabilities_FullMethodName, builderv0.Builder_Build_FullMethodName} {
+			for _, want := range []string{builderv1.Builder_BuildCapabilities_FullMethodName, builderv1.Builder_Build_FullMethodName} {
 				select {
 				case got := <-calls:
 					if got != want {
@@ -397,17 +397,17 @@ func TestBuildRejectsMissingOrRelativeDestinationOverGRPC(t *testing.T) {
 				write(t, original, "original recipe")
 				ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 				defer cancel()
-				docker := &builderv0.DockerBuildContext{DockerRepository: "registry.example.com", BuildxBuilder: selection}
+				docker := &builderv1.DockerBuildContext{DockerRepository: "registry.example.com", BuildxBuilder: selection}
 				if selection == "cache-selected" {
-					docker.Cache = &builderv0.BuildCacheOptions{Backend: "registry", Scope: "test/myservice", Exports: []string{"registry.example.com/cache"}}
+					docker.Cache = &builderv1.BuildCacheOptions{Backend: "registry", Scope: "test/myservice", Exports: []string{"registry.example.com/cache"}}
 				}
-				request := &builderv0.BuildRequest{OutputDirectory: destination, BuildContext: &builderv0.BuildContext{Kind: &builderv0.BuildContext_DockerBuildContext{DockerBuildContext: docker}}}
+				request := &builderv1.BuildRequest{OutputDirectory: destination, BuildContext: &builderv1.BuildContext{Kind: &builderv1.BuildContext_DockerBuildContext{DockerBuildContext: docker}}}
 				response, err := grpcBuilderClient(t, b).Build(ctx, request)
 				if err != nil {
 					if !strings.Contains(err.Error(), "output_directory") {
 						t.Fatalf("unexpected error: %v", err)
 					}
-				} else if response.GetState().GetState() != builderv0.BuildStatus_ERROR || !strings.Contains(response.GetState().GetMessage(), "output_directory") {
+				} else if response.GetState().GetState() != builderv1.BuildStatus_ERROR || !strings.Contains(response.GetState().GetMessage(), "output_directory") {
 					t.Fatalf("expected destination rejection, got %v", response)
 				}
 				contents, err := os.ReadFile(original)
@@ -431,14 +431,14 @@ func TestBuildRejectsMissingOrRelativeDestinationOverGRPC(t *testing.T) {
 
 // emittedPlan drives Build the way the CLI does and returns the recipe plan the
 // agent hands back — the only description of its images the agent owns.
-func emittedPlan(t *testing.T) (*gobuilder.Builder, context.Context, *builderv0.DockerBuildPlan) {
+func emittedPlan(t *testing.T) (*gobuilder.Builder, context.Context, *builderv1.DockerBuildPlan) {
 	t.Helper()
 	b, ctx := loadedBuilder(t)
-	resp, err := b.Build(ctx, &builderv0.BuildRequest{
+	resp, err := b.Build(ctx, &builderv1.BuildRequest{
 		OutputDirectory: filepath.Join(t.TempDir(), "recipe"),
-		BuildContext: &builderv0.BuildContext{
-			Kind: &builderv0.BuildContext_DockerBuildContext{
-				DockerBuildContext: &builderv0.DockerBuildContext{DockerRepository: "registry.example.com"},
+		BuildContext: &builderv1.BuildContext{
+			Kind: &builderv1.BuildContext_DockerBuildContext{
+				DockerBuildContext: &builderv1.DockerBuildContext{DockerRepository: "registry.example.com"},
 			},
 		},
 	})
@@ -454,7 +454,7 @@ func emittedPlan(t *testing.T) (*gobuilder.Builder, context.Context, *builderv0.
 
 // resolvedFromPlan stands in for the digests a caller reads back from the buildx
 // run it drives; this agent only emits the recipe, so a test never has real ones.
-func resolvedFromPlan(t *testing.T, plan *builderv0.DockerBuildPlan) []sbom.ResolvedImage {
+func resolvedFromPlan(t *testing.T, plan *builderv1.DockerBuildPlan) []sbom.ResolvedImage {
 	t.Helper()
 	var resolved []sbom.ResolvedImage
 	for _, recipe := range plan.GetRecipes() {
@@ -481,22 +481,22 @@ func TestImageSBOMRequiresCallerSuppliedSubjects(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 
-	resp, err := client.SBOM(ctx, &builderv0.SBOMRequest{Scope: builderv0.SBOMScope_SBOM_SCOPE_IMAGE})
+	resp, err := client.SBOM(ctx, &builderv1.SBOMRequest{Scope: builderv1.SBOMScope_SBOM_SCOPE_IMAGE})
 	if err != nil {
 		t.Fatalf("SBOM: %v", err)
 	}
-	if state := resp.GetState().GetState(); state != builderv0.SBOMStatus_ERROR {
+	if state := resp.GetState().GetState(); state != builderv1.SBOMStatus_ERROR {
 		t.Fatalf("state = %s, want ERROR: %s", state, resp.GetState().GetMessage())
 	}
 	// An image failure reported without image scope reads as a source inventory,
 	// which hides the cause behind a scope complaint.
-	if scope := resp.GetScope(); scope != builderv0.SBOMScope_SBOM_SCOPE_IMAGE {
+	if scope := resp.GetScope(); scope != builderv1.SBOMScope_SBOM_SCOPE_IMAGE {
 		t.Errorf("scope = %s, want image", scope)
 	}
-	if code := resp.GetState().GetFailure().GetCode(); code != basev0.FailureCode_FAILURE_CODE_PRECONDITION_FAILED {
+	if code := resp.GetState().GetFailure().GetCode(); code != basev1.FailureCode_FAILURE_CODE_PRECONDITION_FAILED {
 		t.Errorf("failure code = %s, want precondition failed", code)
 	}
-	if reason := resp.GetNoImageReason(); reason != builderv0.NoImageReason_NO_IMAGE_REASON_UNSPECIFIED {
+	if reason := resp.GetNoImageReason(); reason != builderv1.NoImageReason_NO_IMAGE_REASON_UNSPECIFIED {
 		t.Errorf("no-image reason = %s, but this service ships an image", reason)
 	}
 	if images := resp.GetImages(); len(images) != 0 {
@@ -529,7 +529,7 @@ func TestImageSBOMCoverageDerivesFromTheEmittedRecipe(t *testing.T) {
 		}
 	}
 
-	unsatisfied, err := b.SBOM(ctx, &builderv0.SBOMRequest{Scope: builderv0.SBOMScope_SBOM_SCOPE_IMAGE})
+	unsatisfied, err := b.SBOM(ctx, &builderv1.SBOMRequest{Scope: builderv1.SBOMScope_SBOM_SCOPE_IMAGE})
 	if err != nil {
 		t.Fatalf("SBOM: %v", err)
 	}
@@ -548,14 +548,14 @@ func TestImageSBOMCoverageDerivesFromTheEmittedRecipe(t *testing.T) {
 func TestSourceInventoryIsNotImageCoverage(t *testing.T) {
 	b, ctx, plan := emittedPlan(t)
 
-	resp, err := b.SBOM(ctx, &builderv0.SBOMRequest{})
+	resp, err := b.SBOM(ctx, &builderv1.SBOMRequest{})
 	if err != nil {
 		t.Fatalf("SBOM: %v", err)
 	}
-	if state := resp.GetState().GetState(); state != builderv0.SBOMStatus_COMPLETE {
+	if state := resp.GetState().GetState(); state != builderv1.SBOMStatus_COMPLETE {
 		t.Fatalf("source SBOM state = %s: %s", state, resp.GetState().GetMessage())
 	}
-	if scope := resp.GetScope(); scope != builderv0.SBOMScope_SBOM_SCOPE_SOURCE {
+	if scope := resp.GetScope(); scope != builderv1.SBOMScope_SBOM_SCOPE_SOURCE {
 		t.Errorf("unset scope = %s, want source", scope)
 	}
 	expected, err := sbom.ExpectedFromBuildPlan("myservice", plan, resolvedFromPlan(t, plan))
@@ -581,9 +581,9 @@ func TestImageSBOMRefusesUnpinnedSubjects(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 
 	reference := "registry.example.com/codefly/myservice:1.0.0"
-	resp, err := b.SBOM(ctx, &builderv0.SBOMRequest{
-		Scope: builderv0.SBOMScope_SBOM_SCOPE_IMAGE,
-		Subjects: []*builderv0.ImageSubject{{
+	resp, err := b.SBOM(ctx, &builderv1.SBOMRequest{
+		Scope: builderv1.SBOMScope_SBOM_SCOPE_IMAGE,
+		Subjects: []*builderv1.ImageSubject{{
 			Reference: reference,
 			Platform:  "linux/amd64",
 			Role:      "app",
@@ -593,10 +593,10 @@ func TestImageSBOMRefusesUnpinnedSubjects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SBOM: %v", err)
 	}
-	if state := resp.GetState().GetState(); state != builderv0.SBOMStatus_ERROR {
+	if state := resp.GetState().GetState(); state != builderv1.SBOMStatus_ERROR {
 		t.Fatalf("unpinned subject state = %s, want ERROR", state)
 	}
-	if scope := resp.GetScope(); scope != builderv0.SBOMScope_SBOM_SCOPE_IMAGE {
+	if scope := resp.GetScope(); scope != builderv1.SBOMScope_SBOM_SCOPE_IMAGE {
 		t.Errorf("scope = %s, want image", scope)
 	}
 	if images := resp.GetImages(); len(images) != 0 {
@@ -615,9 +615,9 @@ func TestImageSBOMAcceptsSubjectsPinnedByReference(t *testing.T) {
 	b, ctx := loadedBuilder(t)
 	t.Setenv("PATH", t.TempDir())
 
-	resp, err := b.SBOM(ctx, &builderv0.SBOMRequest{
-		Scope: builderv0.SBOMScope_SBOM_SCOPE_IMAGE,
-		Subjects: []*builderv0.ImageSubject{{
+	resp, err := b.SBOM(ctx, &builderv1.SBOMRequest{
+		Scope: builderv1.SBOMScope_SBOM_SCOPE_IMAGE,
+		Subjects: []*builderv1.ImageSubject{{
 			Reference: "registry.example.com/codefly/myservice@sha256:" + strings.Repeat("a", 64),
 			Platform:  "linux/amd64",
 			Role:      "app",
@@ -641,9 +641,9 @@ func TestImageSBOMScanFailuresStayImageScoped(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 
 	digest := "sha256:" + strings.Repeat("a", 64)
-	resp, err := b.SBOM(ctx, &builderv0.SBOMRequest{
-		Scope: builderv0.SBOMScope_SBOM_SCOPE_IMAGE,
-		Subjects: []*builderv0.ImageSubject{{
+	resp, err := b.SBOM(ctx, &builderv1.SBOMRequest{
+		Scope: builderv1.SBOMScope_SBOM_SCOPE_IMAGE,
+		Subjects: []*builderv1.ImageSubject{{
 			Reference: "registry.example.com/codefly/myservice@" + digest,
 			Digest:    digest,
 			Platform:  "linux/amd64",
@@ -654,10 +654,10 @@ func TestImageSBOMScanFailuresStayImageScoped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SBOM: %v", err)
 	}
-	if state := resp.GetState().GetState(); state != builderv0.SBOMStatus_ERROR {
+	if state := resp.GetState().GetState(); state != builderv1.SBOMStatus_ERROR {
 		t.Fatalf("unscannable image state = %s, want ERROR", state)
 	}
-	if scope := resp.GetScope(); scope != builderv0.SBOMScope_SBOM_SCOPE_IMAGE {
+	if scope := resp.GetScope(); scope != builderv1.SBOMScope_SBOM_SCOPE_IMAGE {
 		t.Errorf("scope = %s, want image", scope)
 	}
 	if images := resp.GetImages(); len(images) != 0 {

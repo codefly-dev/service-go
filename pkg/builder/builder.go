@@ -26,9 +26,9 @@ import (
 	"github.com/codefly-dev/core/agents/services/audit"
 	"github.com/codefly-dev/core/agents/services/sbom"
 	"github.com/codefly-dev/core/builders"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/companion"
 	"github.com/codefly-dev/core/runners/dockerrun"
@@ -67,7 +67,7 @@ type Builder struct {
 
 	cfg           BuildConfig
 	cacheLocation string
-	answers       map[string]*agentv0.Answer
+	answers       map[string]*agentv1.Answer
 }
 
 // New builds a generic Go Builder. Caller provides template FS + deps.
@@ -75,7 +75,7 @@ func New(svc *goservice.Service, cfg BuildConfig) *Builder {
 	return &Builder{Service: svc, cfg: cfg}
 }
 
-func (s *Builder) Load(ctx context.Context, req *builderv0.LoadRequest) (*builderv0.LoadResponse, error) {
+func (s *Builder) Load(ctx context.Context, req *builderv1.LoadRequest) (*builderv1.LoadResponse, error) {
 	defer s.Wool.Catch()
 	ctx = s.Wool.Inject(ctx)
 
@@ -110,7 +110,7 @@ func (s *Builder) Load(ctx context.Context, req *builderv0.LoadRequest) (*builde
 	return s.Builder.LoadResponse()
 }
 
-func (s *Builder) Init(ctx context.Context, req *builderv0.InitRequest) (*builderv0.InitResponse, error) {
+func (s *Builder) Init(ctx context.Context, req *builderv1.InitRequest) (*builderv1.InitResponse, error) {
 	defer s.Wool.Catch()
 	s.Builder.LogInitRequest(req)
 	ctx = s.Wool.Inject(ctx)
@@ -118,26 +118,26 @@ func (s *Builder) Init(ctx context.Context, req *builderv0.InitRequest) (*builde
 	return s.Builder.InitResponse()
 }
 
-func (s *Builder) Update(ctx context.Context, _ *builderv0.UpdateRequest) (*builderv0.UpdateResponse, error) {
+func (s *Builder) Update(ctx context.Context, _ *builderv1.UpdateRequest) (*builderv1.UpdateResponse, error) {
 	defer s.Wool.Catch()
 	ctx = s.Wool.Inject(ctx)
-	return &builderv0.UpdateResponse{}, nil
+	return &builderv1.UpdateResponse{}, nil
 }
 
 // Sync is a no-op on the generic layer — go has no protos to regenerate.
 // Specializations (go-grpc) override.
-func (s *Builder) Sync(ctx context.Context, _ *builderv0.SyncRequest) (*builderv0.SyncResponse, error) {
+func (s *Builder) Sync(ctx context.Context, _ *builderv1.SyncRequest) (*builderv1.SyncResponse, error) {
 	defer s.Wool.Catch()
 	ctx = s.Wool.Inject(ctx)
 	return s.Builder.SyncResponse()
 }
 
-func (s *Builder) BuildCapabilities(context.Context, *builderv0.BuildCapabilitiesRequest) (*builderv0.BuildCapabilitiesResponse, error) {
-	return &builderv0.BuildCapabilitiesResponse{BuildxSelection: true}, nil
+func (s *Builder) BuildCapabilities(context.Context, *builderv1.BuildCapabilitiesRequest) (*builderv1.BuildCapabilitiesResponse, error) {
+	return &builderv1.BuildCapabilitiesResponse{BuildxSelection: true}, nil
 }
 
 // Build emits a recipe for the CLI to build and publish.
-func (s *Builder) Build(ctx context.Context, req *builderv0.BuildRequest) (*builderv0.BuildResponse, error) {
+func (s *Builder) Build(ctx context.Context, req *builderv1.BuildRequest) (*builderv1.BuildResponse, error) {
 	defer s.Wool.Catch()
 	ctx = s.Wool.Inject(ctx)
 	if req.GetOutputDirectory() == "" {
@@ -183,7 +183,7 @@ func NewDeploymentParameters() DeploymentParameters {
 // caller-owned output directory and returns a single-image DockerBuildPlan. The
 // image becomes a durable, reproducible recipe the CLI rebuilds with buildx, so
 // a consumer never needs the agent toolchain.
-func (s *Builder) buildRecipe(ctx context.Context, req *builderv0.BuildRequest, outputDir string) (*builderv0.BuildResponse, error) {
+func (s *Builder) buildRecipe(ctx context.Context, req *builderv1.BuildRequest, outputDir string) (*builderv1.BuildResponse, error) {
 	dockerRequest, err := s.Builder.DockerBuildRequest(ctx, req)
 	if err != nil {
 		return nil, err
@@ -215,11 +215,11 @@ func (s *Builder) buildRecipe(ctx context.Context, req *builderv0.BuildRequest, 
 		return s.Builder.BuildError(err)
 	}
 
-	recipe := &builderv0.DockerBuildRecipe{
+	recipe := &builderv1.DockerBuildRecipe{
 		Name:         "app",
 		Dockerfile:   "builder/Dockerfile",
 		Context:      ".",
-		ContextRoot:  builderv0.RecipeContextRoot_RECIPE_CONTEXT_ROOT_OUTPUT,
+		ContextRoot:  builderv1.RecipeContextRoot_RECIPE_CONTEXT_ROOT_OUTPUT,
 		Dockerignore: "builder/dockerignore",
 		Image:        image.FullName(),
 		Platforms:    []string{"linux/amd64", "linux/arm64"},
@@ -228,12 +228,12 @@ func (s *Builder) buildRecipe(ctx context.Context, req *builderv0.BuildRequest, 
 		// image build, and supply it as the `gomodproxy` build context the
 		// Dockerfile reads: a private module then needs no credential inside
 		// the build. The root is where copyGoContext puts the module below.
-		GoModuleDownloads: []*builderv0.GoModuleDownload{{
+		GoModuleDownloads: []*builderv1.GoModuleDownload{{
 			ModuleRoot:   goModuleRoot,
 			ProxyContext: goModuleProxyContext,
 		}},
 	}
-	plan, err := services.BuildDockerBuildPlan(outputDir, []*builderv0.DockerBuildRecipe{recipe})
+	plan, err := services.BuildDockerBuildPlan(outputDir, []*builderv1.DockerBuildRecipe{recipe})
 	if err != nil {
 		return s.Builder.BuildError(err)
 	}
@@ -309,7 +309,7 @@ func copyFile(src, dst string) error {
 // Audit is inherited by every Go specialization. Scanner ownership belongs in
 // this language base so a new Go plugin gets a typed, fail-closed security RPC
 // without reimplementing process invocation or result mapping.
-func (s *Builder) Audit(ctx context.Context, req *builderv0.AuditRequest) (*builderv0.AuditResponse, error) {
+func (s *Builder) Audit(ctx context.Context, req *builderv1.AuditRequest) (*builderv1.AuditResponse, error) {
 	defer s.Wool.Catch()
 	ctx = s.Wool.Inject(ctx)
 	result, err := audit.Golang(ctx, s.Service.SourceLocation, req.GetIncludeOutdated())
@@ -326,10 +326,10 @@ func (s *Builder) Audit(ctx context.Context, req *builderv0.AuditRequest) (*buil
 // emitted recipe, so the digests to scan arrive as caller-supplied subjects;
 // asked for image scope with none, the shared helper reports the precondition
 // failure rather than passing the module graph off as image coverage.
-func (s *Builder) SBOM(ctx context.Context, req *builderv0.SBOMRequest) (*builderv0.SBOMResponse, error) {
+func (s *Builder) SBOM(ctx context.Context, req *builderv1.SBOMRequest) (*builderv1.SBOMResponse, error) {
 	defer s.Wool.Catch()
 	ctx = s.Wool.Inject(ctx)
-	if req.GetScope() == builderv0.SBOMScope_SBOM_SCOPE_IMAGE {
+	if req.GetScope() == builderv1.SBOMScope_SBOM_SCOPE_IMAGE {
 		if subject := unpinnedImageSubject(req.GetSubjects()); subject != nil {
 			return s.Builder.SBOMImageError(fmt.Errorf("image subject %q names no immutable digest: a tag resolves to whatever the registry serves when the scan runs, which need not be the image this build produced; supply the digest the build resolved", subject.GetReference()))
 		}
@@ -347,7 +347,7 @@ func (s *Builder) SBOM(ctx context.Context, req *builderv0.SBOMRequest) (*builde
 // subject carrying nothing but a tag would be inventoried from whatever the
 // registry serves at scan time and reported as coverage for the built image
 // without anything detecting the substitution.
-func unpinnedImageSubject(subjects []*builderv0.ImageSubject) *builderv0.ImageSubject {
+func unpinnedImageSubject(subjects []*builderv1.ImageSubject) *builderv1.ImageSubject {
 	for _, subject := range subjects {
 		if strings.HasPrefix(subject.GetDigest(), "sha256:") {
 			continue
@@ -363,7 +363,7 @@ func unpinnedImageSubject(subjects []*builderv0.ImageSubject) *builderv0.ImageSu
 // Package emits portable Go binaries and release-bound CycloneDX evidence.
 // The operation is plugin-owned and local-first; agent build, CI, and future
 // editor/Mind consumers all call this same typed RPC.
-func (s *Builder) Package(ctx context.Context, req *builderv0.PackageRequest) (*builderv0.PackageResponse, error) {
+func (s *Builder) Package(ctx context.Context, req *builderv1.PackageRequest) (*builderv1.PackageResponse, error) {
 	defer s.Wool.Catch()
 	ctx = s.Wool.Inject(ctx)
 	if req == nil {
@@ -392,7 +392,7 @@ func (s *Builder) Package(ctx context.Context, req *builderv0.PackageRequest) (*
 	if err != nil {
 		return s.Builder.PackageError(err)
 	}
-	artifacts := make([]*builderv0.PackageArtifact, 0, len(targets)*2)
+	artifacts := make([]*builderv1.PackageArtifact, 0, len(targets)*2)
 	for _, target := range targets {
 		destinationDirectory := filepath.Join(outputDirectory, target.GetOs()+"-"+target.GetArchitecture())
 		if err := os.MkdirAll(destinationDirectory, 0o755); err != nil {
@@ -406,8 +406,8 @@ func (s *Builder) Package(ctx context.Context, req *builderv0.PackageRequest) (*
 		if err != nil {
 			return s.Builder.PackageError(err)
 		}
-		artifacts = append(artifacts, &builderv0.PackageArtifact{
-			Kind:      builderv0.PackageArtifact_EXECUTABLE,
+		artifacts = append(artifacts, &builderv1.PackageArtifact{
+			Kind:      builderv1.PackageArtifact_EXECUTABLE,
 			Path:      destination,
 			Target:    target,
 			Sha256:    digest,
@@ -422,7 +422,7 @@ func (s *Builder) Package(ctx context.Context, req *builderv0.PackageRequest) (*
 		if err != nil {
 			return s.Builder.PackageError(fmt.Errorf("generate package SBOM: %w", err))
 		}
-		for _, executable := range append([]*builderv0.PackageArtifact(nil), artifacts...) {
+		for _, executable := range append([]*builderv1.PackageArtifact(nil), artifacts...) {
 			subject := req.GetSubject()
 			publisher, name, version := "", artifactName, ""
 			if subject != nil {
@@ -453,8 +453,8 @@ func (s *Builder) Package(ctx context.Context, req *builderv0.PackageRequest) (*
 			if err != nil {
 				return s.Builder.PackageError(err)
 			}
-			artifacts = append(artifacts, &builderv0.PackageArtifact{
-				Kind:      builderv0.PackageArtifact_SBOM,
+			artifacts = append(artifacts, &builderv1.PackageArtifact{
+				Kind:      builderv1.PackageArtifact_SBOM,
 				Path:      destination,
 				Target:    executable.GetTarget(),
 				Sha256:    digest,
@@ -470,24 +470,24 @@ func (s *Builder) Package(ctx context.Context, req *builderv0.PackageRequest) (*
 	return s.Builder.PackageResponse(artifacts)
 }
 
-func normalizePackageTargets(requested []*builderv0.PackageTarget) ([]*builderv0.PackageTarget, error) {
+func normalizePackageTargets(requested []*builderv1.PackageTarget) ([]*builderv1.PackageTarget, error) {
 	if len(requested) == 0 {
-		requested = []*builderv0.PackageTarget{{Os: runtime.GOOS, Architecture: runtime.GOARCH}}
+		requested = []*builderv1.PackageTarget{{Os: runtime.GOOS, Architecture: runtime.GOARCH}}
 	}
-	byIdentity := make(map[string]*builderv0.PackageTarget, len(requested))
+	byIdentity := make(map[string]*builderv1.PackageTarget, len(requested))
 	for _, target := range requested {
 		if target == nil || !validPackageTargetComponent(target.GetOs()) || !validPackageTargetComponent(target.GetArchitecture()) {
 			return nil, fmt.Errorf("invalid package target %v", target)
 		}
 		identity := target.GetOs() + "/" + target.GetArchitecture()
-		byIdentity[identity] = &builderv0.PackageTarget{Os: target.GetOs(), Architecture: target.GetArchitecture()}
+		byIdentity[identity] = &builderv1.PackageTarget{Os: target.GetOs(), Architecture: target.GetArchitecture()}
 	}
 	identities := make([]string, 0, len(byIdentity))
 	for identity := range byIdentity {
 		identities = append(identities, identity)
 	}
 	sort.Strings(identities)
-	targets := make([]*builderv0.PackageTarget, 0, len(identities))
+	targets := make([]*builderv1.PackageTarget, 0, len(identities))
 	for _, identity := range identities {
 		targets = append(targets, byIdentity[identity])
 	}
@@ -506,7 +506,7 @@ func validPackageTargetComponent(value string) bool {
 	return true
 }
 
-func packageGoBinary(ctx context.Context, source, destination string, target *builderv0.PackageTarget, goWork string) error {
+func packageGoBinary(ctx context.Context, source, destination string, target *builderv1.PackageTarget, goWork string) error {
 	moduleRoot, entry, err := resolvePackageSource(ctx, source, target, goWork)
 	if err != nil {
 		return err
@@ -537,7 +537,7 @@ func packageGoBinary(ctx context.Context, source, destination string, target *bu
 	return nil
 }
 
-func packageNativeGoBinary(ctx context.Context, source, entry, destination string, target *builderv0.PackageTarget, goWork string) error {
+func packageNativeGoBinary(ctx context.Context, source, entry, destination string, target *builderv1.PackageTarget, goWork string) error {
 	command := exec.CommandContext(ctx, "go", "build", "-trimpath", "-o", destination, entry)
 	command.Dir = source
 	command.Env = hostGoEnvironment(goWork,
@@ -572,11 +572,11 @@ func crossCGOToolchainFor(identity string) (crossCGOToolchain, bool) {
 	}
 }
 
-func packageCrossGoBinary(ctx context.Context, source, entry, destination string, target *builderv0.PackageTarget, goWork string) error {
+func packageCrossGoBinary(ctx context.Context, source, entry, destination string, target *builderv1.PackageTarget, goWork string) error {
 	return packageCrossGoBinaryWithRunner(ctx, source, entry, destination, target, goWork, companion.NewCompanionRunner)
 }
 
-func packageCrossGoBinaryWithRunner(ctx context.Context, source, entry, destination string, target *builderv0.PackageTarget, goWork string,
+func packageCrossGoBinaryWithRunner(ctx context.Context, source, entry, destination string, target *builderv1.PackageTarget, goWork string,
 	newRunner func(context.Context, companion.CompanionOpts) (companion.CompanionRunner, error),
 ) (resultErr error) {
 	identity := target.GetOs() + "/" + target.GetArchitecture()
@@ -700,7 +700,7 @@ func writePackageFile(destination string, payload []byte, mode os.FileMode) erro
 }
 
 // Deploy renders k8s manifests and applies them.
-func (s *Builder) Deploy(ctx context.Context, req *builderv0.DeploymentRequest) (*builderv0.DeploymentResponse, error) {
+func (s *Builder) Deploy(ctx context.Context, req *builderv1.DeploymentRequest) (*builderv1.DeploymentResponse, error) {
 	defer s.Wool.Catch()
 	ctx = s.Wool.Inject(ctx)
 	return golanghelpers.DeployGoKubernetes(ctx, s.Base.Builder, req, s.EnvironmentVariables, s.cfg.DeploymentFS,
@@ -708,11 +708,11 @@ func (s *Builder) Deploy(ctx context.Context, req *builderv0.DeploymentRequest) 
 }
 
 // Options are the default communicate questions for `codefly add service`.
-func (s *Builder) Options() []*agentv0.Question {
-	return []*agentv0.Question{
-		communicate.NewConfirm(&agentv0.Message{Name: HotReload, Message: "Code hot-reload?", Description: "Restart service when code changes"}, true),
-		communicate.NewConfirm(&agentv0.Message{Name: DebugSymbols, Message: "Start with debug symbols?", Description: "Build with debug symbols for stack debugging"}, false),
-		communicate.NewConfirm(&agentv0.Message{Name: RaceConditionDetectionRun, Message: "Start with race condition detection?", Description: "Build with -race"}, false),
+func (s *Builder) Options() []*agentv1.Question {
+	return []*agentv1.Question{
+		communicate.NewConfirm(&agentv1.Message{Name: HotReload, Message: "Code hot-reload?", Description: "Restart service when code changes"}, true),
+		communicate.NewConfirm(&agentv1.Message{Name: DebugSymbols, Message: "Start with debug symbols?", Description: "Build with debug symbols for stack debugging"}, false),
+		communicate.NewConfirm(&agentv1.Message{Name: RaceConditionDetectionRun, Message: "Start with race condition detection?", Description: "Build with -race"}, false),
 	}
 }
 
@@ -722,7 +722,7 @@ type CreateConfiguration struct {
 	Envs []string
 }
 
-func (s *Builder) Create(ctx context.Context, req *builderv0.CreateRequest) (*builderv0.CreateResponse, error) {
+func (s *Builder) Create(ctx context.Context, req *builderv1.CreateRequest) (*builderv1.CreateResponse, error) {
 	defer s.Wool.Catch()
 	ctx = s.Wool.Inject(ctx)
 
@@ -765,15 +765,15 @@ func (s *Builder) Create(ctx context.Context, req *builderv0.CreateRequest) (*bu
 	}
 	// The factory emits an HTTP server; declare the endpoint the host must
 	// allocate before that generated server can resolve its listening address.
-	endpoint, err := resources.NewAPI(ctx, s.Base.BaseEndpoint(standards.HTTP), resources.ToHTTPAPI(&basev0.HttpAPI{}))
+	endpoint, err := resources.NewAPI(ctx, s.Base.BaseEndpoint(standards.HTTP), resources.ToHTTPAPI(&basev1.HttpAPI{}))
 	if err != nil {
 		return s.Builder.CreateError(err)
 	}
-	s.Endpoints = []*basev0.Endpoint{endpoint}
+	s.Endpoints = []*basev1.Endpoint{endpoint}
 	return s.Builder.CreateResponse(ctx, s.Settings)
 }
 
-func (s *Builder) Communicate(stream builderv0.Builder_CommunicateServer) error {
+func (s *Builder) Communicate(stream builderv1.Builder_CommunicateServer) error {
 	asker := communicate.NewQuestionAsker(stream)
 	answers, err := asker.RunSequence(s.Options())
 	if err != nil {

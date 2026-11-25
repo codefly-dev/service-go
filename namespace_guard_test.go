@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/agents/services"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 	gobuilder "github.com/codefly-dev/service-go/pkg/builder"
@@ -55,7 +55,7 @@ func TestRestrictedRenderOmitsTheNamespace(t *testing.T) {
 // and keep listing it. Without this the guard could be "satisfied" by deleting
 // the template.
 func TestEphemeralRenderStillEmitsTheNamespace(t *testing.T) {
-	destination := renderDeploymentTree(t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1)
+	destination := renderDeploymentTree(t, builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1)
 
 	namespace := readRenderedFile(t, destination, "base", "namespace.yaml")
 	for _, want := range []string{"kind: Namespace", "codefly-test", "app.kubernetes.io/managed-by: codefly"} {
@@ -79,9 +79,9 @@ func TestEphemeralRenderStillEmitsTheNamespace(t *testing.T) {
 // window closed at core v0.15.0: the deprecated PROMOTABLE_GITOPS_V1
 // predecessor this list also covered no longer exists in the enum, so a
 // render can only be asked for the transport-neutral profile.
-func restrictedProfiles() []builderv0.KubernetesOutputProfile {
-	return []builderv0.KubernetesOutputProfile{
-		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
+func restrictedProfiles() []builderv1.KubernetesOutputProfile {
+	return []builderv1.KubernetesOutputProfile{
+		builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
 	}
 }
 
@@ -89,7 +89,7 @@ func restrictedProfiles() []builderv0.KubernetesOutputProfile {
 // profile through the production path and returns the destination root, so both
 // the base and the overlays can be asserted. A restricted render additionally
 // requires a digest-pinned image, as core's static conformance does.
-func renderDeploymentTree(t *testing.T, profile builderv0.KubernetesOutputProfile) string {
+func renderDeploymentTree(t *testing.T, profile builderv1.KubernetesOutputProfile) string {
 	t.Helper()
 	ctx := context.Background()
 	identity := &resources.ServiceIdentity{
@@ -120,7 +120,7 @@ func renderDeploymentTree(t *testing.T, profile builderv0.KubernetesOutputProfil
 	base.Builder = builder
 
 	destination := t.TempDir()
-	deployment := &builderv0.KubernetesDeployment{
+	deployment := &builderv1.KubernetesDeployment{
 		Namespace:   "codefly-test",
 		Destination: destination,
 		Profile:     profile,
@@ -130,7 +130,7 @@ func renderDeploymentTree(t *testing.T, profile builderv0.KubernetesOutputProfil
 		SecretMap:  services.EnvironmentMap{"CODEFLY_TEST_SECRET": "value"},
 		Parameters: gobuilder.NewDeploymentParameters(),
 	}
-	if err := builder.KustomizeDeploy(ctx, &basev0.Environment{Name: "test"}, deployment, deploymentFS, params); err != nil {
+	if err := builder.KustomizeDeploy(ctx, &basev1.Environment{Name: "test"}, deployment, deploymentFS, params); err != nil {
 		t.Fatalf("render %s kustomize templates: %v", profile, err)
 	}
 	return destination

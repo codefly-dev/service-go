@@ -17,7 +17,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/codefly-dev/core/ciinputs"
-	agent "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agent "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"

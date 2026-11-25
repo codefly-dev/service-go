@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 	goruntime "github.com/codefly-dev/service-go/pkg/runtime"
 	"net"
 	"os"
@@ -16,9 +16,9 @@ import (
 
 	"github.com/codefly-dev/core/agents/services"
 	"github.com/codefly-dev/core/ciinputs"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	agent "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	agent "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/codefly-dev/core/resources"
 	gobuilder "github.com/codefly-dev/service-go/pkg/builder"
 	goservice "github.com/codefly-dev/service-go/pkg/service"
@@ -574,11 +574,11 @@ func TestEffectiveInputsUnrepresentableFixturePaths(t *testing.T) {
 func TestEffectiveInputsRuntimeLifecycle(t *testing.T) {
 	svc, root := inputService(t)
 	svc.Identity.RelativeToWorkspace = "service"
-	svc.Environment = &basev0.Environment{}
+	svc.Environment = &basev1.Environment{}
 	client := inputClient(t, svc)
 	before := inputTask(t, discoverInputs(t, client, "before-init"), agent.TaskPhase_TASK_PHASE_COMPILE)
 	rt := goruntime.New(svc)
-	initResponse, err := rt.Init(t.Context(), &runtimev0.InitRequest{RuntimeContext: resources.NewRuntimeContextNative()})
+	initResponse, err := rt.Init(t.Context(), &runtimev1.InitRequest{RuntimeContext: resources.NewRuntimeContextNative()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -591,11 +591,11 @@ func TestEffectiveInputsRuntimeLifecycle(t *testing.T) {
 	}
 	writeInput(t, root, "service/code/feature.go", "//go:build feature\n\npackage main\nvar _ = missingFeatureSymbol\n")
 	svc.EnvironmentVariables.AddOverrides(map[string]string{"GOFLAGS": "-tags=feature"})
-	buildResponse, err := rt.Build(t.Context(), &runtimev0.BuildRequest{})
+	buildResponse, err := rt.Build(t.Context(), &runtimev1.BuildRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if buildResponse.GetStatus().GetState() != runtimev0.BuildStatus_ERROR || !strings.Contains(buildResponse.GetStatus().GetMessage(), "missingFeatureSymbol") {
+	if buildResponse.GetStatus().GetState() != runtimev1.BuildStatus_ERROR || !strings.Contains(buildResponse.GetStatus().GetMessage(), "missingFeatureSymbol") {
 		t.Fatalf("runtime ignored injected build tag: %v", buildResponse)
 	}
 	tagged := inputTask(t, discoverInputs(t, client, "tagged"), agent.TaskPhase_TASK_PHASE_COMPILE)
@@ -603,8 +603,8 @@ func TestEffectiveInputsRuntimeLifecycle(t *testing.T) {
 		t.Fatal("discovery ignored injected build tag")
 	}
 	writeInput(t, root, "service/code/feature.go", "//go:build feature\n\npackage main\nconst Feature = true\n")
-	buildResponse, err = rt.Build(t.Context(), &runtimev0.BuildRequest{})
-	if err != nil || buildResponse.GetStatus().GetState() != runtimev0.BuildStatus_SUCCESS {
+	buildResponse, err = rt.Build(t.Context(), &runtimev1.BuildRequest{})
+	if err != nil || buildResponse.GetStatus().GetState() != runtimev1.BuildStatus_SUCCESS {
 		t.Fatalf("valid build: %v %v", buildResponse, err)
 	}
 }
@@ -642,13 +642,13 @@ func TestEffectiveInputsLargeContextCancellation(t *testing.T) {
 
 func TestEffectiveInputsGenericSyncCompleteness(t *testing.T) {
 	svc, root := inputService(t)
-	if err := svc.Base.HeadlessLoad(t.Context(), &basev0.ServiceIdentity{WorkspacePath: root, RelativeToWorkspace: "service", Name: "sample"}); err != nil {
+	if err := svc.Base.HeadlessLoad(t.Context(), &basev1.ServiceIdentity{WorkspacePath: root, RelativeToWorkspace: "service", Name: "sample"}); err != nil {
 		t.Fatal(err)
 	}
 	builder := gobuilder.New(svc, gobuilder.BuildConfig{})
 	assertSync := func() {
-		response, err := builder.Sync(t.Context(), &builderv0.SyncRequest{})
-		if err != nil || response.GetState().GetState() != builderv0.SyncStatus_SUCCESS {
+		response, err := builder.Sync(t.Context(), &builderv1.SyncRequest{})
+		if err != nil || response.GetState().GetState() != builderv1.SyncStatus_SUCCESS {
 			t.Fatalf("generic sync: %v %v", response, err)
 		}
 	}
@@ -693,9 +693,9 @@ func TestEffectiveInputsGenericSyncCompleteness(t *testing.T) {
 func TestEffectiveInputPlansBindBuildTarget(t *testing.T) {
 	svc, root := inputService(t)
 	svc.Identity.RelativeToWorkspace = "service"
-	svc.Environment = &basev0.Environment{}
+	svc.Environment = &basev1.Environment{}
 	rt := goruntime.New(svc)
-	initResponse, err := rt.Init(t.Context(), &runtimev0.InitRequest{RuntimeContext: resources.NewRuntimeContextNative()})
+	initResponse, err := rt.Init(t.Context(), &runtimev1.InitRequest{RuntimeContext: resources.NewRuntimeContextNative()})
 	if err != nil {
 		t.Fatal(err)
 	}

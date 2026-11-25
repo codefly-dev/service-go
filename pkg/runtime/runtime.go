@@ -44,14 +44,14 @@ import (
 	"github.com/codefly-dev/core/agents/helpers/code"
 	"github.com/codefly-dev/core/agents/services"
 	"github.com/codefly-dev/core/builders"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/llmout"
 	"github.com/codefly-dev/core/resources"
 	runners "github.com/codefly-dev/core/runners/base"
 	"github.com/codefly-dev/core/shared"
 	"github.com/codefly-dev/core/wool"
 
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 	golanghelpers "github.com/codefly-dev/core/runners/golang"
 	selectioncontract "github.com/codefly-dev/core/runners/testselection"
 
@@ -93,7 +93,7 @@ func New(svc *goservice.Service) *Runtime {
 	return &Runtime{Service: svc}
 }
 
-func (s *Runtime) Load(ctx context.Context, req *runtimev0.LoadRequest) (*runtimev0.LoadResponse, error) {
+func (s *Runtime) Load(ctx context.Context, req *runtimev1.LoadRequest) (*runtimev1.LoadResponse, error) {
 	err := s.Base.Load(ctx, req.Identity, s.Settings)
 	if err != nil {
 		return s.Runtime.LoadErrorf(err, "loading base")
@@ -139,7 +139,7 @@ func (s *Runtime) Load(ctx context.Context, req *runtimev0.LoadRequest) (*runtim
 	return s.Runtime.LoadResponse()
 }
 
-func (s *Runtime) SetRuntimeContext(_ context.Context, runtimeContext *basev0.RuntimeContext) error {
+func (s *Runtime) SetRuntimeContext(_ context.Context, runtimeContext *basev1.RuntimeContext) error {
 	s.Runtime.RuntimeContext = golanghelpers.SetGoRuntimeContext(runtimeContext)
 	return nil
 }
@@ -181,7 +181,7 @@ func (s *Runtime) CreateRunnerEnvironment(ctx context.Context) error {
 	return nil
 }
 
-func (s *Runtime) Init(ctx context.Context, req *runtimev0.InitRequest) (*runtimev0.InitResponse, error) {
+func (s *Runtime) Init(ctx context.Context, req *runtimev1.InitRequest) (*runtimev1.InitResponse, error) {
 	defer s.Wool.Catch()
 	ctx = s.Wool.Inject(ctx)
 
@@ -269,7 +269,7 @@ func (s *Runtime) Init(ctx context.Context, req *runtimev0.InitRequest) (*runtim
 	return s.Runtime.InitResponse()
 }
 
-func (s *Runtime) Start(ctx context.Context, req *runtimev0.StartRequest) (*runtimev0.StartResponse, error) {
+func (s *Runtime) Start(ctx context.Context, req *runtimev1.StartRequest) (*runtimev1.StartResponse, error) {
 	defer s.Wool.Catch()
 	ctx = s.Wool.Inject(ctx)
 
@@ -380,12 +380,12 @@ func (s *Runtime) Start(ctx context.Context, req *runtimev0.StartRequest) (*runt
 	// is genuinely not serving there.
 	if executable, reported := s.RunnerEnvironment.HostExecutable(); reported {
 		s.Wool.Trace("reporting started artifact", wool.FileField(executable))
-		s.Runtime.ReportStartedArtifact(&runtimev0.StartedArtifact{Executable: executable})
+		s.Runtime.ReportStartedArtifact(&runtimev1.StartedArtifact{Executable: executable})
 	}
 	return s.Runtime.StartResponse()
 }
 
-func (s *Runtime) Build(ctx context.Context, req *runtimev0.BuildRequest) (*runtimev0.BuildResponse, error) {
+func (s *Runtime) Build(ctx context.Context, req *runtimev1.BuildRequest) (*runtimev1.BuildResponse, error) {
 	defer s.Wool.Catch()
 	ctx = s.Wool.Inject(ctx)
 
@@ -407,12 +407,12 @@ func (s *Runtime) Build(ctx context.Context, req *runtimev0.BuildRequest) (*runt
 	return s.Runtime.BuildResponse(compressed)
 }
 
-func (s *Runtime) Test(ctx context.Context, req *runtimev0.TestRequest) (*runtimev0.TestResponse, error) {
+func (s *Runtime) Test(ctx context.Context, req *runtimev1.TestRequest) (*runtimev1.TestResponse, error) {
 	defer s.Wool.Catch()
 	ctx = s.Wool.Inject(ctx)
 	started := time.Now()
 	if req == nil {
-		req = &runtimev0.TestRequest{}
+		req = &runtimev1.TestRequest{}
 	}
 	if err := selectioncontract.ValidateRequest(req); err != nil {
 		return nil, fmt.Errorf("go runtime: invalid test request: %w", err)
@@ -515,17 +515,17 @@ func (s *Runtime) Test(ctx context.Context, req *runtimev0.TestRequest) (*runtim
 		if reason, detail := golanghelpers.ClassifyEnvError(execution.RawOutput, runErr); reason != "" {
 			message = fmt.Sprintf("env-blocked (%s): %s", reason, detail)
 		}
-		response.Result = &runtimev0.TestRunResult{
-			State: runtimev0.TestRunResult_ERRORED, Message: message,
+		response.Result = &runtimev1.TestRunResult{
+			State: runtimev1.TestRunResult_ERRORED, Message: message,
 		}
-		response.Status = &runtimev0.TestStatus{
-			State: runtimev0.TestStatus_ERROR, Message: message,
+		response.Status = &runtimev1.TestStatus{
+			State: runtimev1.TestStatus_ERROR, Message: message,
 		}
 	}
 	return response, nil
 }
 
-func (s *Runtime) Lint(ctx context.Context, req *runtimev0.LintRequest) (*runtimev0.LintResponse, error) {
+func (s *Runtime) Lint(ctx context.Context, req *runtimev1.LintRequest) (*runtimev1.LintResponse, error) {
 	defer s.Wool.Catch()
 	ctx = s.Wool.Inject(ctx)
 
@@ -548,11 +548,11 @@ func (s *Runtime) Lint(ctx context.Context, req *runtimev0.LintRequest) (*runtim
 	return s.Runtime.LintResponse(compressed)
 }
 
-func (s *Runtime) Information(ctx context.Context, req *runtimev0.InformationRequest) (*runtimev0.InformationResponse, error) {
+func (s *Runtime) Information(ctx context.Context, req *runtimev1.InformationRequest) (*runtimev1.InformationResponse, error) {
 	return s.Runtime.InformationResponse(ctx, req)
 }
 
-func (s *Runtime) Stop(ctx context.Context, req *runtimev0.StopRequest) (*runtimev0.StopResponse, error) {
+func (s *Runtime) Stop(ctx context.Context, req *runtimev1.StopRequest) (*runtimev1.StopResponse, error) {
 	defer s.Wool.Catch()
 	ctx = s.Wool.Inject(ctx)
 	s.Wool.Trace("stopping service")
@@ -575,7 +575,7 @@ func (s *Runtime) Stop(ctx context.Context, req *runtimev0.StopRequest) (*runtim
 	return s.Runtime.StopResponse()
 }
 
-func (s *Runtime) Destroy(ctx context.Context, req *runtimev0.DestroyRequest) (*runtimev0.DestroyResponse, error) {
+func (s *Runtime) Destroy(ctx context.Context, req *runtimev1.DestroyRequest) (*runtimev1.DestroyResponse, error) {
 	defer s.Wool.Catch()
 	ctx = s.Wool.Inject(ctx)
 

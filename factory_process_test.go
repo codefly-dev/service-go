@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/codefly-dev/core/resources"
 	gobuilder "github.com/codefly-dev/service-go/pkg/builder"
 	goservice "github.com/codefly-dev/service-go/pkg/service"
@@ -26,12 +26,12 @@ func TestGeneratedServiceRunsAtResolvedAddress(t *testing.T) {
 	write(t, filepath.Join(workspace, "service.codefly.yaml"), serviceConfig)
 	builder := gobuilder.New(goservice.New(agent), gobuilder.BuildConfig{FactoryFS: factoryFS, BuilderFS: builderFS, DeploymentFS: deploymentFS, Requirements: requirements})
 	builderClient := grpcBuilderClient(t, builder)
-	loaded, err := builderClient.Load(t.Context(), &builderv0.LoadRequest{Identity: &basev0.ServiceIdentity{Name: "myservice", Module: "mymodule", Version: "0.0.1", WorkspacePath: workspace, RelativeToWorkspace: "."}, CreationMode: &builderv0.CreationMode{}})
-	if err != nil || loaded.GetState().GetState() != builderv0.LoadStatus_READY {
+	loaded, err := builderClient.Load(t.Context(), &builderv1.LoadRequest{Identity: &basev1.ServiceIdentity{Name: "myservice", Module: "mymodule", Version: "0.0.1", WorkspacePath: workspace, RelativeToWorkspace: "."}, CreationMode: &builderv1.CreationMode{}})
+	if err != nil || loaded.GetState().GetState() != builderv1.LoadStatus_READY {
 		t.Fatalf("load: %v %v", loaded, err)
 	}
-	created, err := builderClient.Create(t.Context(), &builderv0.CreateRequest{})
-	if err != nil || created.GetState().GetState() != builderv0.CreateStatus_CREATED {
+	created, err := builderClient.Create(t.Context(), &builderv1.CreateRequest{})
+	if err != nil || created.GetState().GetState() != builderv1.CreateStatus_CREATED {
 		t.Fatalf("create: %v %v", created, err)
 	}
 	declared, err := resources.LoadServiceFromDir(t.Context(), workspace)

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
 	"github.com/codefly-dev/core/resources"
 	runners "github.com/codefly-dev/core/runners/base"
 	golanghelpers "github.com/codefly-dev/core/runners/golang"
@@ -144,6 +144,6 @@ func sharedNixTestdata(t *testing.T) string {
 	return "" // unreachable
 }
 
-// Silence the unused-import guard on basev0 until we add a test that
-// builds a full basev0.RuntimeContext beyond the helper constructors.
-var _ *basev0.RuntimeContext
+// Silence the unused-import guard on basev1 until we add a test that
+// builds a full basev1.RuntimeContext beyond the helper constructors.
+var _ *basev1.RuntimeContext

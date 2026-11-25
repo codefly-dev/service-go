@@ -11,7 +11,7 @@ import (
 
 	"github.com/codefly-dev/core/agents/contract"
 	"github.com/codefly-dev/core/agents/services"
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 	"github.com/codefly-dev/core/languages"
 	"github.com/codefly-dev/core/resources"
 	runners "github.com/codefly-dev/core/runners/base"
@@ -126,15 +126,15 @@ func New(agent *resources.Agent) *Service {
 // README because README rendering depends on embed.FS which can't cross
 // package boundaries — each specialization's binary embeds and renders
 // its own.
-func (s *Service) GetAgentInformation(_ context.Context, _ *agentv0.AgentInformationRequest) (*agentv0.AgentInformation, error) {
+func (s *Service) GetAgentInformation(_ context.Context, _ *agentv1.AgentInformationRequest) (*agentv1.AgentInformation, error) {
 	advertisement := services.Advertisement{
 		Backends: runners.BackendSupport{
 			Local:  func() bool { return languages.HasGoRuntime(nil) },
 			Nix:    true,
 			Docker: true,
 		},
-		Toolchains:              []agentv0.Toolchain_Type{agentv0.Toolchain_GO},
-		Languages:               []agentv0.Language_Type{agentv0.Language_GO},
+		Toolchains:              []agentv1.Toolchain_Type{agentv1.Toolchain_GO},
+		Languages:               []agentv1.Language_Type{agentv1.Language_GO},
 		ReadMe:                  "Generic Go service. Specializations add protocols.",
 		Validation:              ValidationCapabilities(),
 		EffectiveInputsVersions: []uint32{1},
@@ -156,25 +156,25 @@ func (s *Service) GetAgentInformation(_ context.Context, _ *agentv0.AgentInforma
 // generic Go service plugins. It describes semantic operations; local commands,
 // Mind/editor integrations, and CI all dispatch the corresponding Runtime and
 // Builder RPCs.
-func ValidationCapabilities() *agentv0.ValidationCapabilities {
-	workspace := []agentv0.ValidationScope{
-		agentv0.ValidationScope_VALIDATION_SCOPE_WORKSPACE,
+func ValidationCapabilities() *agentv1.ValidationCapabilities {
+	workspace := []agentv1.ValidationScope{
+		agentv1.ValidationScope_VALIDATION_SCOPE_WORKSPACE,
 	}
-	operation := func(supported bool) *agentv0.ValidationOperationCapability {
-		return &agentv0.ValidationOperationCapability{
+	operation := func(supported bool) *agentv1.ValidationOperationCapability {
+		return &agentv1.ValidationOperationCapability{
 			Supported: supported,
-			Scopes:    append([]agentv0.ValidationScope(nil), workspace...),
+			Scopes:    append([]agentv1.ValidationScope(nil), workspace...),
 		}
 	}
-	return &agentv0.ValidationCapabilities{
+	return &agentv1.ValidationCapabilities{
 		Lint:    operation(true),
 		Compile: operation(true),
-		Test: &agentv0.TestValidationCapability{
+		Test: &agentv1.TestValidationCapability{
 			Supported: true,
-			Scopes:    append([]agentv0.ValidationScope(nil), workspace...),
-			Suites: []*agentv0.TestSuiteCapability{{
+			Scopes:    append([]agentv1.ValidationScope(nil), workspace...),
+			Suites: []*agentv1.TestSuiteCapability{{
 				Name:           "unit",
-				DependencyMode: agentv0.TestDependencyMode_TEST_DEPENDENCY_MODE_NONE,
+				DependencyMode: agentv1.TestDependencyMode_TEST_DEPENDENCY_MODE_NONE,
 				DefaultSuite:   true,
 			}},
 		},

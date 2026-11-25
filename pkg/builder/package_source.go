@@ -12,7 +12,7 @@ import (
 	"slices"
 	"strings"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"golang.org/x/mod/modfile"
 )
 
@@ -62,7 +62,7 @@ func resolvePackageGoToolchain(ctx context.Context, source, goWork string) (stri
 
 // Resolve the declared package with Go itself. Cross builds must mount the
 // enclosing module, not just a nested main directory with no go.mod or imports.
-func resolvePackageSource(ctx context.Context, source string, target *builderv0.PackageTarget, goWork string) (root, entry string, err error) {
+func resolvePackageSource(ctx context.Context, source string, target *builderv1.PackageTarget, goWork string) (root, entry string, err error) {
 	command := exec.CommandContext(ctx, "go", "list", "-mod=readonly", "-json", ".")
 	command.Dir = source
 	command.Env = hostGoEnvironment(goWork, "CGO_ENABLED=1", "GOOS="+target.GetOs(), "GOARCH="+target.GetArchitecture())

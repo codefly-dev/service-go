@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 	"github.com/codefly-dev/core/languages"
 	"github.com/codefly-dev/core/resources"
 	goruntime "github.com/codefly-dev/service-go/pkg/runtime"
@@ -36,30 +36,30 @@ func TestStartedProcessReceivesEachConfigurationVariableOnce(t *testing.T) {
 	}
 
 	rt := goruntime.New(goservice.New(agent))
-	t.Cleanup(func() { _, _ = rt.Stop(t.Context(), &runtimev0.StopRequest{}) })
-	loaded, err := rt.Load(ctx, &runtimev0.LoadRequest{
-		Identity:    &basev0.ServiceIdentity{Name: "myservice", Module: "mymodule", Version: "0.0.1", WorkspacePath: ws, RelativeToWorkspace: "."},
+	t.Cleanup(func() { _, _ = rt.Stop(t.Context(), &runtimev1.StopRequest{}) })
+	loaded, err := rt.Load(ctx, &runtimev1.LoadRequest{
+		Identity:    &basev1.ServiceIdentity{Name: "myservice", Module: "mymodule", Version: "0.0.1", WorkspacePath: ws, RelativeToWorkspace: "."},
 		Environment: environment, DisableCatch: true,
 	})
-	if err != nil || loaded.GetStatus().GetState() != runtimev0.LoadStatus_READY {
+	if err != nil || loaded.GetStatus().GetState() != runtimev1.LoadStatus_READY {
 		t.Fatalf("load: %v %v", loaded, err)
 	}
 
 	runtimeContext := resources.NewRuntimeContextNative()
-	workspaceConfiguration := &basev0.Configuration{
+	workspaceConfiguration := &basev1.Configuration{
 		Origin:         resources.ConfigurationWorkspace,
 		RuntimeContext: runtimeContext,
-		Infos: []*basev0.ConfigurationInformation{{
+		Infos: []*basev1.ConfigurationInformation{{
 			Name:                "robin",
-			ConfigurationValues: []*basev0.ConfigurationValue{{Key: "chat", Value: "bound"}},
+			ConfigurationValues: []*basev1.ConfigurationValue{{Key: "chat", Value: "bound"}},
 		}},
 	}
 	// No runner is bound beforehand, so Init creates it exactly as in production.
-	init, err := rt.Init(ctx, &runtimev0.InitRequest{
+	init, err := rt.Init(ctx, &runtimev1.InitRequest{
 		RuntimeContext:          runtimeContext,
-		WorkspaceConfigurations: []*basev0.Configuration{workspaceConfiguration},
+		WorkspaceConfigurations: []*basev1.Configuration{workspaceConfiguration},
 	})
-	if err != nil || init.GetStatus().GetState() != runtimev0.InitStatus_READY {
+	if err != nil || init.GetStatus().GetState() != runtimev1.InitStatus_READY {
 		t.Fatalf("init: %v %v", init, err)
 	}
 

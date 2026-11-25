@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/codefly-dev/core/runners/companion"
 	"github.com/codefly-dev/core/runners/dockerrun"
 	"github.com/codefly-dev/core/wool"
@@ -101,7 +101,7 @@ func TestPackageCrossShutdown(t *testing.T) {
 					return wool.Get(shutdownCtx).In("Docker.Shutdown").Wrapf(tc.shutdownErr, "cannot remove container")
 				}}, nil
 			}
-			target := &builderv0.PackageTarget{Os: runtime.GOOS, Architecture: runtime.GOARCH}
+			target := &builderv1.PackageTarget{Os: runtime.GOOS, Architecture: runtime.GOARCH}
 			err := packageCrossGoBinaryWithRunner(ctx, source, ".", destination, target, "off", factory)
 			if !shutdownCalled {
 				t.Fatalf("build never reached cleanup: %v", err)

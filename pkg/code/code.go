@@ -22,8 +22,8 @@ import (
 	corecode "github.com/codefly-dev/core/code"
 	"github.com/codefly-dev/core/code/semantic"
 	"github.com/codefly-dev/core/failures"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	codev0 "github.com/codefly-dev/core/generated/go/codefly/services/code/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	codev1 "github.com/codefly-dev/core/generated/go/codefly/services/code/v1"
 	runners "github.com/codefly-dev/core/runners/base"
 	"golang.org/x/tools/imports"
 
@@ -40,7 +40,7 @@ import (
 func (c *Code) runTool(ctx context.Context, dir, cmd string, args ...string) ([]byte, error) {
 	env := c.Service.CurrentRunnerEnvironment()
 	if env == nil {
-		var rctx *basev0.RuntimeContext
+		var rctx *basev1.RuntimeContext
 		if c.Service.Base != nil && c.Service.Base.Runtime != nil {
 			rctx = c.Service.Base.Runtime.RuntimeContext
 		}
@@ -137,7 +137,7 @@ func (c *Code) registerOverrides() {
 	// get_call_graph: served via Tooling gRPC service (not through Execute).
 }
 
-func (c *Code) Execute(ctx context.Context, req *codev0.CodeRequest) (*codev0.CodeResponse, error) {
+func (c *Code) Execute(ctx context.Context, req *codev1.CodeRequest) (*codev1.CodeResponse, error) {
 	c.serverMu.Lock()
 	defer c.serverMu.Unlock()
 	if _, err := c.Service.ResolveSourceLocation(ctx); err != nil {
@@ -172,7 +172,7 @@ func (c *Code) fixGo(_ context.Context, input corecode.FixInput) (corecode.FixRe
 
 // --- Go-specific: Dependency management ---
 
-func (c *Code) handleAddDependency(ctx context.Context, req *codev0.CodeRequest) (*codev0.CodeResponse, error) {
+func (c *Code) handleAddDependency(ctx context.Context, req *codev1.CodeRequest) (*codev1.CodeResponse, error) {
 	r := req.GetAddDependency()
 	pkg := r.PackageName
 	if r.Version != "" {
@@ -180,25 +180,25 @@ func (c *Code) handleAddDependency(ctx context.Context, req *codev0.CodeRequest)
 	}
 	out, err := c.runTool(ctx, c.SourceDir(), "go", "get", pkg)
 	if err != nil {
-		return failedResponse(&codev0.CodeResponse{Result: &codev0.CodeResponse_AddDependency{AddDependency: &codev0.AddDependencyResponse{Success: false}}},
-			basev0.FailureCode_FAILURE_CODE_PROCESS_FAILED, "code.add-dependency", fmt.Sprintf("go get: %s", string(out))), nil
+		return failedResponse(&codev1.CodeResponse{Result: &codev1.CodeResponse_AddDependency{AddDependency: &codev1.AddDependencyResponse{Success: false}}},
+			basev1.FailureCode_FAILURE_CODE_PROCESS_FAILED, "code.add-dependency", fmt.Sprintf("go get: %s", string(out))), nil
 	}
-	return &codev0.CodeResponse{Result: &codev0.CodeResponse_AddDependency{AddDependency: &codev0.AddDependencyResponse{Success: true, InstalledVersion: r.Version}}}, nil
+	return &codev1.CodeResponse{Result: &codev1.CodeResponse_AddDependency{AddDependency: &codev1.AddDependencyResponse{Success: true, InstalledVersion: r.Version}}}, nil
 }
 
-func (c *Code) handleRemoveDependency(ctx context.Context, req *codev0.CodeRequest) (*codev0.CodeResponse, error) {
+func (c *Code) handleRemoveDependency(ctx context.Context, req *codev1.CodeRequest) (*codev1.CodeResponse, error) {
 	r := req.GetRemoveDependency()
 	if out, err := c.runTool(ctx, c.SourceDir(), "go", "mod", "edit", "-droprequire", r.PackageName); err != nil {
-		return failedResponse(&codev0.CodeResponse{Result: &codev0.CodeResponse_RemoveDependency{RemoveDependency: &codev0.RemoveDependencyResponse{Success: false}}},
-			basev0.FailureCode_FAILURE_CODE_PROCESS_FAILED, "code.remove-dependency", fmt.Sprintf("go mod edit: %s", string(out))), nil
+		return failedResponse(&codev1.CodeResponse{Result: &codev1.CodeResponse_RemoveDependency{RemoveDependency: &codev1.RemoveDependencyResponse{Success: false}}},
+			basev1.FailureCode_FAILURE_CODE_PROCESS_FAILED, "code.remove-dependency", fmt.Sprintf("go mod edit: %s", string(out))), nil
 	}
 	_, _ = c.runTool(ctx, c.SourceDir(), "go", "mod", "tidy")
-	return &codev0.CodeResponse{Result: &codev0.CodeResponse_RemoveDependency{RemoveDependency: &codev0.RemoveDependencyResponse{Success: true}}}, nil
+	return &codev1.CodeResponse{Result: &codev1.CodeResponse_RemoveDependency{RemoveDependency: &codev1.RemoveDependencyResponse{Success: true}}}, nil
 }
 
 // --- Helpers ---
 
-func failedResponse(response *codev0.CodeResponse, code basev0.FailureCode, operation, message string) *codev0.CodeResponse {
+func failedResponse(response *codev1.CodeResponse, code basev1.FailureCode, operation, message string) *codev1.CodeResponse {
 	response.Failure = failures.New(code, operation, message)
 	return response
 }

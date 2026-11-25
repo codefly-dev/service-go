@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/codefly-dev/core/ciinputs"
-	agent "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agent "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 	"github.com/codefly-dev/core/resources"
 	runners "github.com/codefly-dev/core/runners/base"
 	golanghelpers "github.com/codefly-dev/core/runners/golang"

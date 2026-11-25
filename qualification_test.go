@@ -11,7 +11,7 @@ import (
 
 	"github.com/codefly-dev/core/agents/contract"
 	"github.com/codefly-dev/core/agents/manager"
-	agentv0 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v0"
+	agentv1 "github.com/codefly-dev/core/generated/go/codefly/services/agent/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/runners/recoveryscope"
 	"google.golang.org/grpc"
@@ -83,7 +83,7 @@ func TestSelfBootstrapAdvertisesTheRuntimeContract(t *testing.T) {
 	t.Cleanup(conn.Close)
 
 	var headers metadata.MD
-	advertisement, err := agentv0.NewAgentClient(conn.GRPCConn()).GetAgentInformation(t.Context(), &agentv0.AgentInformationRequest{}, grpc.Header(&headers))
+	advertisement, err := agentv1.NewAgentClient(conn.GRPCConn()).GetAgentInformation(t.Context(), &agentv1.AgentInformationRequest{}, grpc.Header(&headers))
 	if err != nil {
 		t.Fatalf("discover agent information: %v\n%s", err, conn.StderrTail())
 	}

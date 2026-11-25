@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	toolingv0 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	toolingv1 "github.com/codefly-dev/core/generated/go/codefly/services/tooling/v1"
 	"github.com/codefly-dev/core/resources"
 
 	gocode "github.com/codefly-dev/service-go/pkg/code"
@@ -44,11 +44,11 @@ func TestToolingPropagatesCanonicalCodeFailure(t *testing.T) {
 	svc.SourceLocation = dir
 	c := gocode.New(svc)
 	c.InitServer()
-	response, err := gotooling.New(c, goruntime.New(svc)).Fix(context.Background(), &toolingv0.FixRequest{File: "missing.go"})
+	response, err := gotooling.New(c, goruntime.New(svc)).Fix(context.Background(), &toolingv1.FixRequest{File: "missing.go"})
 	if err != nil {
 		t.Fatalf("Fix: %v", err)
 	}
-	if response.GetSuccess() || response.GetFailure().GetCode() != basev0.FailureCode_FAILURE_CODE_NOT_FOUND {
+	if response.GetSuccess() || response.GetFailure().GetCode() != basev1.FailureCode_FAILURE_CODE_NOT_FOUND {
 		t.Fatalf("tooling response = %+v, want propagated not-found failure", response)
 	}
 	if response.GetFailure().GetOperation() != "code.fix" {
@@ -70,7 +70,7 @@ func TestToolingForwardsTypedProjectEvidence(t *testing.T) {
 	code := gocode.New(svc)
 	code.InitServer()
 
-	project, err := gotooling.New(code, goruntime.New(svc)).GetProjectInfo(context.Background(), &toolingv0.GetProjectInfoRequest{})
+	project, err := gotooling.New(code, goruntime.New(svc)).GetProjectInfo(context.Background(), &toolingv1.GetProjectInfoRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,11 +80,11 @@ func TestToolingForwardsTypedProjectEvidence(t *testing.T) {
 	if len(project.GetSourceFiles()) != 1 || len(project.GetSourceFiles()[0].GetImports()) != 1 || project.GetSourceFiles()[0].GetImports()[0] != "github.com/google/uuid" {
 		t.Fatalf("source evidence=%+v", project.GetSourceFiles())
 	}
-	semantic, err := gotooling.New(code, goruntime.New(svc)).GetSemanticIndex(context.Background(), &toolingv0.GetSemanticIndexRequest{})
+	semantic, err := gotooling.New(code, goruntime.New(svc)).GetSemanticIndex(context.Background(), &toolingv1.GetSemanticIndexRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if semantic.GetFailure() != nil || semantic.GetIndex().GetState() != basev0.SemanticIndexState_SEMANTIC_INDEX_STATE_COMPLETE || len(semantic.GetIndex().GetSymbols()) == 0 {
+	if semantic.GetFailure() != nil || semantic.GetIndex().GetState() != basev1.SemanticIndexState_SEMANTIC_INDEX_STATE_COMPLETE || len(semantic.GetIndex().GetSymbols()) == 0 {
 		t.Fatalf("semantic index = %+v", semantic)
 	}
 }

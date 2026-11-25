@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 )
 
 // replaceFixture lays out a repository holding two Go modules: a service whose
@@ -77,21 +77,21 @@ func TestBuildRecipeCarriesLocalReplacement(t *testing.T) {
 
 	b, ctx := loadBuilderAt(t, service)
 	out := filepath.Join(t.TempDir(), "recipe")
-	resp, err := b.Build(ctx, &builderv0.BuildRequest{
+	resp, err := b.Build(ctx, &builderv1.BuildRequest{
 		OutputDirectory: out,
-		BuildContext: &builderv0.BuildContext{
-			Kind: &builderv0.BuildContext_DockerBuildContext{
-				DockerBuildContext: &builderv0.DockerBuildContext{DockerRepository: "registry.example.com"},
+		BuildContext: &builderv1.BuildContext{
+			Kind: &builderv1.BuildContext_DockerBuildContext{
+				DockerBuildContext: &builderv1.DockerBuildContext{DockerRepository: "registry.example.com"},
 			},
 		},
 	})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if resp.GetState().GetState() != builderv0.BuildStatus_SUCCESS {
+	if resp.GetState().GetState() != builderv1.BuildStatus_SUCCESS {
 		t.Fatalf("build state = %v, message = %q", resp.GetState().GetState(), resp.GetState().GetMessage())
 	}
-	if root := resp.GetResult().GetDockerBuildPlan().GetRecipes()[0].GetContextRoot(); root != builderv0.RecipeContextRoot_RECIPE_CONTEXT_ROOT_OUTPUT {
+	if root := resp.GetResult().GetDockerBuildPlan().GetRecipes()[0].GetContextRoot(); root != builderv1.RecipeContextRoot_RECIPE_CONTEXT_ROOT_OUTPUT {
 		t.Fatalf("carried replacements require the emitted context, got %v", root)
 	}
 
@@ -149,11 +149,11 @@ func TestBuildRecipeCarryIsIdempotentInAReusedDirectory(t *testing.T) {
 
 	b, ctx := loadBuilderAt(t, service)
 	out := filepath.Join(t.TempDir(), "recipe")
-	request := &builderv0.BuildRequest{
+	request := &builderv1.BuildRequest{
 		OutputDirectory: out,
-		BuildContext: &builderv0.BuildContext{
-			Kind: &builderv0.BuildContext_DockerBuildContext{
-				DockerBuildContext: &builderv0.DockerBuildContext{DockerRepository: "registry.example.com"},
+		BuildContext: &builderv1.BuildContext{
+			Kind: &builderv1.BuildContext_DockerBuildContext{
+				DockerBuildContext: &builderv1.DockerBuildContext{DockerRepository: "registry.example.com"},
 			},
 		},
 	}
@@ -163,7 +163,7 @@ func TestBuildRecipeCarryIsIdempotentInAReusedDirectory(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Build %d: %v", attempt, err)
 		}
-		if resp.GetState().GetState() != builderv0.BuildStatus_SUCCESS {
+		if resp.GetState().GetState() != builderv1.BuildStatus_SUCCESS {
 			t.Fatalf("build %d state = %v, message = %q", attempt, resp.GetState().GetState(), resp.GetState().GetMessage())
 		}
 		rewritten, err := os.ReadFile(filepath.Join(out, "code", "go.mod"))
@@ -200,18 +200,18 @@ func TestBuildRecipeRefusesReplacementOutsideRepository(t *testing.T) {
 	_, service := replaceFixture(t, filepath.Join(outside, "lib"))
 
 	b, ctx := loadBuilderAt(t, service)
-	resp, err := b.Build(ctx, &builderv0.BuildRequest{
+	resp, err := b.Build(ctx, &builderv1.BuildRequest{
 		OutputDirectory: filepath.Join(t.TempDir(), "recipe"),
-		BuildContext: &builderv0.BuildContext{
-			Kind: &builderv0.BuildContext_DockerBuildContext{
-				DockerBuildContext: &builderv0.DockerBuildContext{DockerRepository: "registry.example.com"},
+		BuildContext: &builderv1.BuildContext{
+			Kind: &builderv1.BuildContext_DockerBuildContext{
+				DockerBuildContext: &builderv1.DockerBuildContext{DockerRepository: "registry.example.com"},
 			},
 		},
 	})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if resp.GetState().GetState() == builderv0.BuildStatus_SUCCESS {
+	if resp.GetState().GetState() == builderv1.BuildStatus_SUCCESS {
 		t.Fatal("a replacement outside the repository must not render a recipe")
 	}
 	message := resp.GetState().GetMessage()
@@ -226,18 +226,18 @@ func TestBuildRecipeRefusesReplacementOutsideRepository(t *testing.T) {
 func TestBuildRecipeWithoutLocalReplaceIsUnchanged(t *testing.T) {
 	b, ctx := loadedBuilder(t)
 	out := filepath.Join(t.TempDir(), "recipe")
-	resp, err := b.Build(ctx, &builderv0.BuildRequest{
+	resp, err := b.Build(ctx, &builderv1.BuildRequest{
 		OutputDirectory: out,
-		BuildContext: &builderv0.BuildContext{
-			Kind: &builderv0.BuildContext_DockerBuildContext{
-				DockerBuildContext: &builderv0.DockerBuildContext{DockerRepository: "registry.example.com"},
+		BuildContext: &builderv1.BuildContext{
+			Kind: &builderv1.BuildContext_DockerBuildContext{
+				DockerBuildContext: &builderv1.DockerBuildContext{DockerRepository: "registry.example.com"},
 			},
 		},
 	})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if resp.GetState().GetState() != builderv0.BuildStatus_SUCCESS {
+	if resp.GetState().GetState() != builderv1.BuildStatus_SUCCESS {
 		t.Fatalf("build state = %v, message = %q", resp.GetState().GetState(), resp.GetState().GetMessage())
 	}
 	source, err := os.ReadFile(filepath.Join(b.SourceLocation, "go.mod"))

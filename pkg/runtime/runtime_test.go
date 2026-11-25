@@ -12,8 +12,8 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/agents/helpers/code"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	runtimev0 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	runtimev1 "github.com/codefly-dev/core/generated/go/codefly/services/runtime/v1"
 	"github.com/codefly-dev/core/resources"
 	golanghelpers "github.com/codefly-dev/core/runners/golang"
 	selectioncontract "github.com/codefly-dev/core/runners/testselection"
@@ -40,11 +40,11 @@ func TestRuntimeClassifiesMalformedModuleAsEnvironmentBlock(t *testing.T) {
 	runtime := goruntime.New(svc)
 	runtime.RunnerEnvironment = runner
 
-	response, err := runtime.Test(context.Background(), &runtimev0.TestRequest{})
+	response, err := runtime.Test(context.Background(), &runtimev1.TestRequest{})
 	if err != nil {
 		t.Fatalf("Test: %v", err)
 	}
-	if response.GetResult().GetState() != runtimev0.TestRunResult_ERRORED ||
+	if response.GetResult().GetState() != runtimev1.TestRunResult_ERRORED ||
 		!strings.Contains(response.GetResult().GetMessage(), "env-blocked") ||
 		response.GetCounts().GetTotal() != 0 || response.GetCounts().GetFailed() != 0 {
 		t.Fatalf("malformed module response = state=%s message=%q counts=%+v, want ERRORED/env-blocked with zero cases", response.GetResult().GetState(), response.GetResult().GetMessage(), response.GetCounts())
@@ -93,14 +93,14 @@ func TestEventHandlerRequestsCorrectLifecycleStage(t *testing.T) {
 	if err := rt.EventHandler(code.Change{Path: "code/main.go", IsRelative: true}); err != nil {
 		t.Fatalf("go change: %v", err)
 	}
-	if got := rt.Runtime.DesiredState.GetStage(); got != runtimev0.DesiredState_START {
+	if got := rt.Runtime.DesiredState.GetStage(); got != runtimev1.DesiredState_START {
 		t.Fatalf("go change stage = %s, want START", got)
 	}
 
 	if err := rt.EventHandler(code.Change{Path: "service.codefly.yaml", IsRelative: true}); err != nil {
 		t.Fatalf("service config change: %v", err)
 	}
-	if got := rt.Runtime.DesiredState.GetStage(); got != runtimev0.DesiredState_LOAD {
+	if got := rt.Runtime.DesiredState.GetStage(); got != runtimev1.DesiredState_LOAD {
 		t.Fatalf("service config change stage = %s, want LOAD", got)
 	}
 }
@@ -124,10 +124,10 @@ func TestInitRecordsFixtureAndOverrides(t *testing.T) {
 	rt := goruntime.New(svc)
 	rt.RunnerEnvironment = runner
 
-	if _, err := rt.Init(context.Background(), &runtimev0.InitRequest{
-		ProposedNetworkMappings: []*basev0.NetworkMapping{{
-			Endpoint:  &basev0.Endpoint{Module: "example", Service: "worker", Name: "http", Api: "http"},
-			Instances: []*basev0.NetworkInstance{{Address: "http://127.0.0.1:12345", Access: resources.NewNativeNetworkAccess()}},
+	if _, err := rt.Init(context.Background(), &runtimev1.InitRequest{
+		ProposedNetworkMappings: []*basev1.NetworkMapping{{
+			Endpoint:  &basev1.Endpoint{Module: "example", Service: "worker", Name: "http", Api: "http"},
+			Instances: []*basev1.NetworkInstance{{Address: "http://127.0.0.1:12345", Access: resources.NewNativeNetworkAccess()}},
 		}},
 		Fixture:   "dev-admin",
 		Overrides: map[string]string{"CODEFLY__API_CONSUMES": "billing"},
@@ -151,7 +151,7 @@ func TestInitRecordsFixtureAndOverrides(t *testing.T) {
 	// An agent process is reused across invocations, so Init is authoritative:
 	// a second invocation selecting nothing must not keep serving the first
 	// one's values.
-	if _, err := rt.Init(context.Background(), &runtimev0.InitRequest{}); err != nil {
+	if _, err := rt.Init(context.Background(), &runtimev1.InitRequest{}); err != nil {
 		t.Fatalf("second Init: %v", err)
 	}
 	envs, err = rt.EnvironmentVariables.All()
@@ -203,8 +203,8 @@ func TestUnselectedPass(t *testing.T) {}
 	svc := goservice.New(&resources.Agent{Kind: "codefly:service", Name: "go"})
 	svc.SourceLocation = dir
 	rt := goruntime.New(svc)
-	req := &runtimev0.TestRequest{
-		Selection: &runtimev0.TestSelection{Scope: &runtimev0.TestSelection_TestCase{TestCase: &runtimev0.TestCaseSelection{
+	req := &runtimev1.TestRequest{
+		Selection: &runtimev1.TestSelection{Scope: &runtimev1.TestSelection_TestCase{TestCase: &runtimev1.TestCaseSelection{
 			Package:       ".",
 			Path:          "selection_test.go",
 			QualifiedName: []string{"TestSelectedFailure"},
@@ -218,7 +218,7 @@ func TestUnselectedPass(t *testing.T) {}
 	if err := selectioncontract.VerifyAcknowledgement(req, resp); err != nil {
 		t.Fatalf("selection acknowledgement: %v", err)
 	}
-	if resp.GetResult().GetState() != runtimev0.TestRunResult_FAILED || resp.GetCounts().GetTotal() != 1 || resp.GetCounts().GetFailed() != 1 {
+	if resp.GetResult().GetState() != runtimev1.TestRunResult_FAILED || resp.GetCounts().GetTotal() != 1 || resp.GetCounts().GetFailed() != 1 {
 		t.Fatalf("selected result = %s counts=%+v, want only one failing case", resp.GetResult().GetState(), resp.GetCounts())
 	}
 }
@@ -241,8 +241,8 @@ func TestSecondFailure(t *testing.T) { t.Fatal("second") }
 	svc := goservice.New(&resources.Agent{Kind: "codefly:service", Name: "go"})
 	svc.SourceLocation = dir
 	rt := goruntime.New(svc)
-	resp, err := rt.Test(context.Background(), &runtimev0.TestRequest{
-		Formula:  &runtimev0.TestFormula{Command: []string{"go", "test", "-json", "./..."}},
+	resp, err := rt.Test(context.Background(), &runtimev1.TestRequest{
+		Formula:  &runtimev1.TestFormula{Command: []string{"go", "test", "-json", "./..."}},
 		FailFast: true,
 	})
 	if err != nil {
@@ -288,15 +288,15 @@ func TestInvocationReachesCounter(t *testing.T) {
 	svc := goservice.New(&resources.Agent{Kind: "codefly:service", Name: "go"})
 	svc.SourceLocation = dir
 	rt := goruntime.New(svc)
-	request := &runtimev0.TestRequest{
-		Formula: &runtimev0.TestFormula{Command: []string{"go", "test", "-json", "./..."}},
+	request := &runtimev1.TestRequest{
+		Formula: &runtimev1.TestFormula{Command: []string{"go", "test", "-json", "./..."}},
 	}
 	for attempt := 1; attempt <= 2; attempt++ {
 		response, err := rt.Test(context.Background(), request)
 		if err != nil {
 			t.Fatalf("Test attempt %d: %v", attempt, err)
 		}
-		if response.GetResult().GetState() != runtimev0.TestRunResult_PASSED || response.GetCounts().GetPassed() != 1 {
+		if response.GetResult().GetState() != runtimev1.TestRunResult_PASSED || response.GetCounts().GetPassed() != 1 {
 			t.Fatalf("attempt %d state = %s counts=%+v", attempt, response.GetResult().GetState(), response.GetCounts())
 		}
 	}
@@ -311,11 +311,11 @@ func TestInvocationReachesCounter(t *testing.T) {
 	runner.WithWorkspace(false)
 	rt.RunnerEnvironment = runner
 	for attempt := 1; attempt <= 2; attempt++ {
-		response, err := rt.Test(context.Background(), &runtimev0.TestRequest{})
+		response, err := rt.Test(context.Background(), &runtimev1.TestRequest{})
 		if err != nil {
 			t.Fatalf("default Test attempt %d: %v", attempt, err)
 		}
-		if response.GetResult().GetState() != runtimev0.TestRunResult_PASSED || response.GetCounts().GetPassed() != 1 {
+		if response.GetResult().GetState() != runtimev1.TestRunResult_PASSED || response.GetCounts().GetPassed() != 1 {
 			t.Fatalf("default attempt %d state = %s counts=%+v", attempt, response.GetResult().GetState(), response.GetCounts())
 		}
 	}

@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/codefly-dev/core/agents/services"
-	basev0 "github.com/codefly-dev/core/generated/go/codefly/base/v0"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	basev1 "github.com/codefly-dev/core/generated/go/codefly/base/v1"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/codefly-dev/core/resources"
 	"github.com/codefly-dev/core/wool"
 	gobuilder "github.com/codefly-dev/service-go/pkg/builder"
@@ -25,7 +25,7 @@ import (
 // cell refuse the whole Application. The ephemeral local-apply profile still
 // creates its own namespace.
 func TestRestrictedProfileShipsNoNamespace(t *testing.T) {
-	restricted := renderProfile(t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1)
+	restricted := renderProfile(t, builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1)
 	if found := namespaceDocuments(t, restricted); len(found) > 0 {
 		t.Errorf("restricted render ships a Namespace in %v", found)
 	}
@@ -37,13 +37,13 @@ func TestRestrictedProfileShipsNoNamespace(t *testing.T) {
 		t.Errorf("restricted base kustomization still lists namespace.yaml:\n%s", kustomization)
 	}
 
-	ephemeral := renderProfile(t, builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1)
+	ephemeral := renderProfile(t, builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1)
 	if found := namespaceDocuments(t, ephemeral); len(found) != 1 {
 		t.Errorf("ephemeral render must create exactly its own namespace, found %v", found)
 	}
 }
 
-func renderProfile(t *testing.T, profile builderv0.KubernetesOutputProfile) string {
+func renderProfile(t *testing.T, profile builderv1.KubernetesOutputProfile) string {
 	t.Helper()
 	ctx := context.Background()
 	identity := &resources.ServiceIdentity{Workspace: "workspace", Module: "module", Name: "example-service", Version: "1.2.3"}
@@ -66,9 +66,9 @@ func renderProfile(t *testing.T, profile builderv0.KubernetesOutputProfile) stri
 	base.Builder = builder
 
 	destination := t.TempDir()
-	deployment := &builderv0.KubernetesDeployment{Namespace: "codefly-test", Destination: destination, Profile: profile}
+	deployment := &builderv1.KubernetesDeployment{Namespace: "codefly-test", Destination: destination, Profile: profile}
 	params := services.DeploymentParameters{ConfigMap: services.EnvironmentMap{"CODEFLY_TEST_VALUE": "value"}, Parameters: gobuilder.NewDeploymentParameters()}
-	if err := builder.KustomizeDeploy(ctx, &basev0.Environment{Name: "test"}, deployment, deploymentFS, params); err != nil {
+	if err := builder.KustomizeDeploy(ctx, &basev1.Environment{Name: "test"}, deployment, deploymentFS, params); err != nil {
 		t.Fatalf("render %s: %v", profile, err)
 	}
 	return destination
@@ -102,9 +102,9 @@ func namespaceDocuments(t *testing.T, root string) []string {
 // container it cannot verify ("image has non-numeric user (appuser), cannot
 // verify user is non-root"), so without a numeric runAsUser no pod starts.
 func TestRenderedPodRunsAsNumericUser(t *testing.T) {
-	for _, profile := range []builderv0.KubernetesOutputProfile{
-		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
-		builderv0.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
+	for _, profile := range []builderv1.KubernetesOutputProfile{
+		builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_RESTRICTED_PORTABLE_V1,
+		builderv1.KubernetesOutputProfile_KUBERNETES_OUTPUT_PROFILE_EPHEMERAL_LOCAL_APPLY_V1,
 	} {
 		rendered, err := os.ReadFile(filepath.Join(renderProfile(t, profile), "base", "deployment.yaml"))
 		if err != nil {

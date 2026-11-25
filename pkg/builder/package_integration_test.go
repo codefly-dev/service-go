@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/codefly-dev/core/runners/dockerrun"
 	"github.com/codefly-dev/core/runners/recoveryscope"
 )
@@ -61,7 +61,7 @@ func TestPackageRealCGO(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	targets := []*builderv0.PackageTarget{
+	targets := []*builderv1.PackageTarget{
 		{Os: runtime.GOOS, Architecture: runtime.GOARCH},
 		{Os: "linux", Architecture: "amd64"},
 		{Os: "darwin", Architecture: "arm64"},

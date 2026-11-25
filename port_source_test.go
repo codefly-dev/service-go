@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	agenttesting "github.com/codefly-dev/core/agents/testing"
-	builderv0 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v0"
+	builderv1 "github.com/codefly-dev/core/generated/go/codefly/services/builder/v1"
 	"github.com/codefly-dev/core/standards"
 	gobuilder "github.com/codefly-dev/service-go/pkg/builder"
 )
@@ -59,11 +59,11 @@ func TestPortsComeFromTheStandardPortSource(t *testing.T) {
 
 	b, ctx := loadedBuilder(t)
 	out := filepath.Join(t.TempDir(), "recipe")
-	if _, err := b.Build(ctx, &builderv0.BuildRequest{
+	if _, err := b.Build(ctx, &builderv1.BuildRequest{
 		OutputDirectory: out,
-		BuildContext: &builderv0.BuildContext{
-			Kind: &builderv0.BuildContext_DockerBuildContext{
-				DockerBuildContext: &builderv0.DockerBuildContext{DockerRepository: "registry.example.com"},
+		BuildContext: &builderv1.BuildContext{
+			Kind: &builderv1.BuildContext_DockerBuildContext{
+				DockerBuildContext: &builderv1.DockerBuildContext{DockerRepository: "registry.example.com"},
 			},
 		},
 	}); err != nil {
