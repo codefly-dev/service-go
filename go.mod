@@ -3,7 +3,7 @@ module github.com/codefly-dev/service-go
 go 1.27.4
 
 require (
-	github.com/codefly-dev/core v0.19.38-0.20261125185931-18555ee1d782
+	github.com/codefly-dev/core v0.19.38-0.20261126202006-b858e99a7bad
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/mod v0.43.0
 	golang.org/x/tools v0.53.0
